@@ -1,0 +1,9 @@
+name = "PersialuxSystem"
+pages_build_output_dir = "dist"
+compatibility_date = "2025-12-10"
+
+[build]
+command = "npm run build"
+
+[env.production]
+vars = { NODE_VERSION = "20" }
