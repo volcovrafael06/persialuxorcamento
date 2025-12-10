@@ -1,0 +1,349 @@
+/* Modern and Pleasant Interface Styles */
+body {
+  font-family: 'Roboto', sans-serif; /* Modern font */
+  margin: 0;
+  padding: 0;
+  background-color: #f4f6f8; /* Light gray background */
+  color: #333; /* Dark gray text */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  padding: 20px;
+}
+
+@media (max-width: 576px) {
+  #root {
+    padding: 10px;
+  }
+}
+
+.App {
+  max-width: 1200px; /* Wider app container */
+  margin: 20px auto;
+  background-color: #fff; /* White main background */
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1); /* Soft shadow */
+  transition: all 0.3s ease;
+}
+
+@media (max-width: 992px) {
+  .App {
+    padding: 25px;
+    margin: 15px auto;
+  }
+}
+
+h1 {
+  color: #3498db; /* Blue header color */
+}
+
+nav {
+  margin-bottom: 20px;
+}
+
+nav ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  gap: 20px;
+}
+
+nav ul li a {
+  text-decoration: none;
+  color: #555; /* Medium gray nav link color */
+  padding: 10px 15px;
+  border-radius: 5px;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+nav ul li a:hover,
+nav ul li a.active {
+  background-color: #3498db; /* Blue background on hover/active */
+  color: #fff; /* White text on hover/active */
+}
+
+/* Form Styles */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #777; /* Light gray label */
+  font-weight: bold;
+}
+
+.form-group input[type="text"],
+.form-group input[type="tel"],
+.form-group input[type="email"],
+.form-group input[type="password"],
+.form-group input[type="number"],
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ddd; /* Light border */
+  border-radius: 5px;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  font-size: 1em;
+  color: #555; /* Input text color */
+}
+
+.form-group input[type="text"]:focus,
+.form-group input[type="tel"]:focus,
+.form-group input[type="email"]:focus,
+.form-group input[type="password"]:focus,
+.form-group input[type="number"]:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: #3498db; /* Blue border on focus */
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2); /* Light blue shadow on focus */
+  outline: none; /* Remove default focus outline */
+}
+
+
+.form-actions {
+  margin-top: 20px;
+}
+
+button[type="submit"],
+button[type="button"] {
+  padding: 12px 20px;
+  background-color: #3498db; /* Blue button */
+  color: #fff; /* White button text */
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+button[type="submit"]::after,
+button[type="button"]::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  border-radius: 100%;
+  transform: scale(1, 1) translate(-50%, -50%);
+  transform-origin: 50% 50%;
+}
+
+button[type="submit"]:active::after,
+button[type="button"]:active::after {
+  animation: ripple 0.6s ease-out;
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0, 0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(20, 20);
+    opacity: 0;
+  }
+}
+
+button[type="submit"]:hover,
+button[type="button"]:hover {
+  background-color: #2980b9; /* Darker blue on hover */
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(52, 152, 219, 0.2);
+}
+
+/* Table Styles (if you use tables) */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+th, td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid #eee; /* Very light border for table rows */
+}
+
+th {
+  background-color: #f0f0f0; /* Light gray table header */
+  font-weight: bold;
+}
+
+/* List Styles */
+ul {
+  list-style: none;
+  padding: 0;
+}
+
+li {
+  padding: 10px 0;
+  border-bottom: 1px dashed #eee; /* Light dashed border for list items */
+}
+
+/* Card Style (example, you can use divs as cards) */
+.card {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05); /* Very subtle card shadow */
+  margin-bottom: 20px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+}
+
+.card-title {
+  color: #3498db;
+  margin-top: 0;
+  margin-bottom: 15px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .App {
+    max-width: 95%;
+  }
+}
+
+@media (max-width: 992px) {
+  .App {
+    max-width: 100%;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .App {
+    padding: 20px;
+    margin: 10px;
+    border-radius: 8px;
+  }
+
+  nav ul {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  button[type="submit"],
+  button[type="button"] {
+    padding: 10px 16px;
+    font-size: 0.95em;
+  }
+}
+
+@media (max-width: 576px) {
+  .App {
+    padding: 15px;
+    margin: 5px;
+    border-radius: 6px;
+  }
+  
+  h1 {
+    font-size: 1.5em;
+  }
+  
+  .form-group input[type="text"],
+  .form-group input[type="tel"],
+  .form-group input[type="email"],
+  .form-group input[type="password"],
+  .form-group input[type="number"],
+  .form-group select,
+  .form-group textarea {
+    padding: 10px;
+    font-size: 16px; /* Prevents zoom on mobile */
+  }
+  
+  button[type="submit"],
+  button[type="button"] {
+    width: 100%;
+    padding: 12px 16px;
+  }
+}
+
+/* Dropdown Styles for Seller Menu */
+.seller-menu.dropdown {
+  position: absolute; /* Posiciona o menu dropdown */
+  top: 100%; /* Abaixo do botão */
+  left: 0;
+  background-color: #fff;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  padding: 10px;
+  z-index: 10; /* Garante que o dropdown aparece sobre outros elementos */
+  min-width: 200px; /* Largura mínima do dropdown */
+}
+
+.seller-menu.dropdown ul {
+  list-style: none;
+  padding: 0;
+  margin-bottom: 10px;
+}
+
+.seller-menu.dropdown li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eee;
+}
+
+.seller-menu.dropdown li:last-child {
+  border-bottom: none;
+}
+
+.seller-menu.dropdown li button {
+  padding: 5px 10px;
+  font-size: 0.9em;
+  background-color: #e74c3c; /* Red delete button */
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.seller-menu.dropdown li button:hover {
+  background-color: #c0392b; /* Darker red on hover */
+}
+
+.seller-menu.dropdown h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 1.2em;
+}
+
+.seller-menu.dropdown > button { /* Estilo para o botão "Criar Novo Vendedor" dentro do dropdown */
+  padding: 8px 15px;
+  background-color: #2ecc71; /* Green create button */
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background-color 0.3s ease;
+  display: block; /* Garante que o botão ocupe a largura total disponível */
+  width: 100%;
+  box-sizing: border-box; /* Garante que o padding não aumente a largura total */
+  text-align: center; /* Centraliza o texto no botão */
+}
+
+.seller-menu.dropdown > button:hover {
+  background-color: #27ae60; /* Darker green on hover */
+}

@@ -1,0 +1,315 @@
+/* BudgetDetailsPage.css - VERSÃO FINAL (Proporções Otimizadas) */
+
+/* 1. RESET GLOBAL */
+* {
+  box-sizing: border-box !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.budget-details-container {
+  background-color: #525659;
+  padding: 30px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 2. FOLHA A4 */
+.budget-print-layout {
+  background-color: white;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 15mm;
+  margin: 0 auto;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+/* --- CABEÇALHO --- */
+.company-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #000;
+  padding-bottom: 8px;
+  margin-bottom: 15px;
+}
+
+.budget-logo {
+  max-width: 140px;
+  max-height: 70px;
+  object-fit: contain;
+}
+
+.company-info {
+  text-align: right;
+  font-size: 10px;
+  color: #000;
+  line-height: 1.3;
+}
+
+.budget-header {
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+.budget-header h2 {
+  font-size: 18px;
+  font-weight: 800;
+  color: #000;
+  margin: 0;
+}
+
+.budget-header p {
+  margin: 2px 0;
+  font-size: 11px;
+  color: #000;
+}
+
+/* --- CLIENTE --- */
+.customer-info {
+  width: 100% !important;
+  border: 1px solid #000;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 15px;
+  background-color: #fff;
+  display: block;
+}
+
+.customer-info h3 {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-bottom: 1px solid #ccc;
+  padding-bottom: 4px;
+}
+
+.customer-info p {
+  margin: 2px 0;
+  font-size: 11px;
+  color: #000;
+}
+
+/* --- CONTAINER ITENS --- */
+.budget-items {
+  width: 100% !important;
+  margin-top: 10px;
+  display: block;
+}
+
+.budget-items h3 {
+  font-size: 13px;
+  font-weight: bold;
+  margin-bottom: 5px;
+  color: #000;
+}
+
+/* --- TABELA (FIXA) --- */
+.budget-table {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  border-collapse: collapse; 
+  table-layout: fixed !important;
+  border: none;
+  font-size: 9px;
+}
+
+/* Células e Cabeçalhos - GERAL */
+.budget-table th, 
+.budget-table td {
+  border: 1px solid #000;
+  padding: 3px 4px; 
+  vertical-align: middle;
+  color: #000;
+  line-height: 1.1;
+  min-height: 20px;
+}
+
+.budget-table th {
+  background-color: #e0e0e0;
+  font-weight: bold;
+  text-transform: uppercase;
+  text-align: center;
+  font-size: 9px;
+  padding: 6px 4px;
+}
+
+/* --- NOVAS LARGURAS DAS COLUNAS (Soma = 100%) --- */
+
+/* 1. Descrição: largura pelo colgroup */
+.budget-table .col-description { width: auto; }
+.budget-table .description { 
+  font-size: 8px;
+  text-align: left;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  white-space: normal;
+  vertical-align: top;
+}
+
+/* 2. Ambiente: largura pelo colgroup */
+.budget-table .col-environment { width: auto; }
+.budget-table .environment { 
+  text-align: center;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  text-overflow: clip;
+  vertical-align: top;
+}
+
+/* 3. Qtd: largura pelo colgroup */
+.budget-table .col-quantity { width: auto; }
+.budget-table .quantity { 
+  text-align: center; 
+}
+
+/* 4. Valor Unit.: largura pelo colgroup */
+.budget-table .col-unit-price { width: auto; }
+.budget-table .unit-price { 
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* 5. Valor Total: largura pelo colgroup */
+.budget-table .col-total { width: auto; }
+.budget-table .total { 
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* Corrigir visual da altura da borda direita quando a linha é alta */
+.budget-table td.total { position: relative; }
+.budget-table td.total::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: #000;
+}
+
+/* Garantir que o cabeçalho e as células de VALOR TOTAL tenham exatamente a mesma largura */
+.budget-table th.total,
+.budget-table td.total { width: 30mm !important; }
+
+/* Colgroup widths for precise alignment (preview) */
+.budget-table col.col-description { width: 83mm; }
+.budget-table col.col-environment { width: 40mm; }
+.budget-table col.col-quantity { width: 9mm; }
+.budget-table col.col-unit-price { width: 18mm; }
+.budget-table col.col-total { width: 30mm; }
+
+/* Padding reduzido nas colunas de valor para ganhar espaço e alinhar */
+.budget-table td.unit-price,
+.budget-table td.total {
+  padding-left: 4px;
+  padding-right: 6px;
+}
+
+/* Garantir alinhamento à direita nas colunas de valor */
+.budget-table th.unit-price,
+.budget-table td.unit-price,
+.budget-table th.total,
+.budget-table td.total {
+  text-align: right !important;
+}
+
+/* Remover borda inferior da última linha para evitar linha acima do total */
+/* Mantém grades até o final da tabela; usamos tfoot para o total */
+
+/* --- RODAPÉ TOTAL --- */
+.budget-table tfoot td {
+  background-color: #e0e0e0;
+  border: 1px solid #000;
+  padding: 6px 4px;
+  font-weight: bold;
+  color: #000;
+  text-transform: uppercase;
+}
+
+.budget-table tfoot td.total-label { 
+  text-align: right; 
+}
+
+/* --- BOTÕES --- */
+.action-buttons-container {
+  width: 210mm;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.back-button, .print-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 12px;
+}
+.back-button { background: #ccc; }
+.print-button { background: #000; color: #fff; }
+.action-buttons { width: 210mm; display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+/* --- IMPRESSÃO --- */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 10mm 18mm 10mm;
+  }
+  body { background: white; margin: 0; }
+  .budget-details-container { padding: 0; margin: 0; display: block; background: white; }
+  
+  .budget-print-layout {
+    width: 210mm;
+    margin: 0;
+    padding: 15mm;
+    box-shadow: none;
+    border: none;
+    overflow: visible;
+    min-height: auto;
+  }
+  .action-buttons-container { display: none !important; }
+  .action-buttons { display: none !important; }
+
+  /* Evitar qualquer corte de números na impressão */
+  .budget-table td.unit-price,
+  .budget-table td.total {
+    white-space: nowrap !important;
+    overflow: visible !important;
+    padding-right: 8px !important;
+    padding-left: 8px !important;
+  }
+
+  /* Garantir que AMBIENTE quebre linhas na impressão */
+  .budget-table .environment,
+  .budget-table .col-environment {
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    text-overflow: clip !important;
+  }
+
+  /* Larguras exatas para área útil A4 (180mm) */
+  .budget-table col.col-description { width: 83mm !important; }
+  .budget-table col.col-environment { width: 40mm !important; }
+  .budget-table col.col-quantity { width: 9mm !important; }
+  .budget-table col.col-unit-price { width: 18mm !important; }
+  .budget-table col.col-total { width: 30mm !important; }
+
+  .budget-table { page-break-inside: auto; }
+  .budget-table thead { display: table-header-group; }
+  .budget-table tfoot { display: table-row-group; }
+  .budget-table tr { page-break-inside: avoid; break-inside: avoid-page; }
+}
