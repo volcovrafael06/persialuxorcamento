@@ -30,6 +30,9 @@ function Products() {
   const [newProduct, setNewProduct] = useState(initialProductState);
   const [editingProductId, setEditingProductId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showOptionModal, setShowOptionModal] = useState(false);
+  const [optionType, setOptionType] = useState(null);
+  const [optionInput, setOptionInput] = useState('');
 
   const [wavePricing, setWavePricing] = useState({
     wave_pricing: [
@@ -228,11 +231,14 @@ function Products() {
   };
 
   const handleAddOption = (optionType) => {
-    const newOption = prompt(`Digite novo ${optionType}:`);
-    if (!newOption) return;
+    setOptionType(optionType);
+    setOptionInput('');
+    setShowOptionModal(true);
+  };
 
-    const formattedOption = newOption.trim().toUpperCase();
-
+  const handleConfirmOption = () => {
+    if (!optionInput) return;
+    const formattedOption = optionInput.trim().toUpperCase();
     switch (optionType) {
       case 'produto':
         setProductOptions(prev => {
@@ -258,21 +264,18 @@ function Products() {
         });
         setNewProduct(prev => ({ ...prev, material: formattedOption }));
         break;
+      default:
+        break;
     }
+    setShowOptionModal(false);
+    setOptionType(null);
+    setOptionInput('');
   };
 
-  const handleAddFabric = () => {
-    const newFabric = prompt('Digite novo tecido:');
-    if (!newFabric) return;
-
-    const formattedFabric = newFabric.trim().toUpperCase();
-
-    setMaterialOptions(prev => {
-      const updated = [...prev, formattedFabric];
-      localStorage.setItem('materialOptions', JSON.stringify(updated));
-      return updated;
-    });
-    setNewProduct(prev => ({ ...prev, material: formattedFabric }));
+  const handleCloseOptionModal = () => {
+    setShowOptionModal(false);
+    setOptionType(null);
+    setOptionInput('');
   };
 
   const handleEditProduct = (product) => {
@@ -504,7 +507,7 @@ function Products() {
                         <option key={index} value={option}>{option}</option>
                       ))}
                     </select>
-                    <button type="button" onClick={handleAddFabric}>
+                    <button type="button" onClick={() => handleAddOption('tecido')}>
                       + Novo
                     </button>
                   </div>
@@ -763,6 +766,30 @@ function Products() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {showOptionModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>Novo {optionType}</h3>
+              <button className="close-button" onClick={handleCloseOptionModal}>&times;</button>
+            </div>
+            <div className="product-form">
+              <div className="form-group">
+                <label>Digite novo {optionType}:</label>
+                <input
+                  type="text"
+                  value={optionInput}
+                  onChange={(e) => setOptionInput(e.target.value)}
+                />
+              </div>
+              <div className="form-actions">
+                <button type="button" className="submit-button" onClick={handleConfirmOption}>Adicionar</button>
+                <button type="button" className="cancel-button" onClick={handleCloseOptionModal}>Cancelar</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

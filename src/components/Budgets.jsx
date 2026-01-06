@@ -424,7 +424,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       }
     });
 
-    if (product.product.modelo.toUpperCase() === 'WAVE') {
+    if (product.product?.modelo?.toUpperCase() === 'WAVE') {
       // Para modelo Wave, calcula o preço base pela altura
       const wave_pricing = JSON.parse(product.product.wave_pricing_data || '[]');
       const heightInMeters = parseFloat(height) || 0;
@@ -462,9 +462,18 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       }
     } else {
       const price = parseFloat(product.product.preco_venda) || 0;
-      if (width && height) {
-        // Use the area that already includes the 10% increase if Painel is selected
-        subtotal = area * price;
+      const method = product.product?.metodo_calculo?.toLowerCase();
+      const parsedWidth = parseFloat(width) || 0;
+      const parsedHeight = parseFloat(height) || 0;
+
+      if (method === 'linear') {
+        const widthForCalc = product.painel ? parsedWidth * 1.1 : parsedWidth;
+        subtotal = widthForCalc * price;
+      } else {
+        if (parsedWidth && parsedHeight) {
+          // Use the area that already includes the 10% increase if Painel is selected
+          subtotal = area * price;
+        }
       }
     }
 
@@ -892,7 +901,10 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       produto: {
         id: currentProduct.product.id,
         nome: currentProduct.product.nome,
-        name: currentProduct.product.name
+        name: currentProduct.product.name,
+        modelo: currentProduct.product.modelo,
+        tecido: currentProduct.product.tecido,
+        codigo: currentProduct.product.codigo
       },
       produto_id: currentProduct.product.id,
       inputWidth: parseFloat(currentProduct.width) || 0,
@@ -1190,7 +1202,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
   const totalValue = productsTotal + accessoriesTotal;
 
   const renderDimensionFields = () => {
-    const isWaveModel = currentProduct.product?.modelo.toUpperCase() === 'WAVE';
+    const isWaveModel = currentProduct.product?.modelo?.toUpperCase() === 'WAVE';
 
     return (
       <>
@@ -1237,7 +1249,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
               step="0.01"
               value={currentProduct.height}
               onChange={handleProductDimensionChange}
-              required={isWaveModel}
+              required={isWaveModel || currentProduct.product?.metodo_calculo !== 'linear'}
             />
           </div>
         )}
@@ -1466,7 +1478,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
                 {renderDimensionFields()}
                 {renderAdditionalOptions()}
 
-                {currentProduct.product.modelo.toUpperCase() === 'WAVE' && (
+                {currentProduct.product?.modelo?.toUpperCase() === 'WAVE' && (
                   <div className="form-group">
                     <label htmlFor="trilho_tipo">Tipo de Trilho</label>
                     <select

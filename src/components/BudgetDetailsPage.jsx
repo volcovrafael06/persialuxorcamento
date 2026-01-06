@@ -193,14 +193,31 @@ function BudgetDetailsPage({ companyLogo }) {
     const dimensions = inputWidth && inputHeight ? `${parseFloat(inputWidth).toFixed(2)}m x ${parseFloat(inputHeight).toFixed(2)}m` : '';
 
     const baseParts = [];
-    if (product.nome) baseParts.push(product.nome);
+    // Tenta encontrar o nome em vários lugares, incluindo item.product (que pode conter o objeto completo)
+    const nome = product.nome || product.name || item.produto?.nome || item.produto?.name || item.product?.nome || item.product?.name || item.nome || item.name || '';
+    
+    if (nome) baseParts.push(nome);
+    
     if (item.painel && item.num_folhas) {
       baseParts.push('PAINEL');
-    } else if (product.modelo) {
-      baseParts.push(product.modelo);
+    } else {
+      // Tenta encontrar o modelo em vários lugares
+      const modelo = product.modelo || item.produto?.modelo || item.product?.modelo || '';
+      if (modelo) baseParts.push(modelo);
     }
-    if (product.tecido) baseParts.push(product.tecido);
-    if (product.codigo) baseParts.push(product.codigo);
+    
+    // Tenta encontrar o tecido e código
+    const tecido = product.tecido || item.produto?.tecido || item.product?.tecido || '';
+    if (tecido) baseParts.push(tecido);
+    
+    const codigo = product.codigo || item.produto?.codigo || item.product?.codigo || '';
+    if (codigo) baseParts.push(codigo);
+
+    // Se ainda assim não tiver nada, tenta usar uma descrição genérica se possível
+    if (baseParts.length === 0) {
+        if (item.produto_id) baseParts.push(`Produto #${item.produto_id}`);
+        else baseParts.push('Produto sem nome');
+    }
 
     const line1 = baseParts.join(' - ');
 
@@ -319,47 +336,123 @@ function BudgetDetailsPage({ companyLogo }) {
     return rows;
   };
 
-  const handleGeneratePDF = async () => {
-    const element = contentRef.current;
-    if (!element) return;
-    const table = element.querySelector('.budget-table');
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const pdfWidth = doc.internal.pageSize.getWidth();
-    const pdfHeight = doc.internal.pageSize.getHeight();
-    const canvas = await html2canvas(element, { scale: 2, useCORS: true, logging: false });
-    const imgData = canvas.toDataURL('image/png');
-    const imgWidthPx = canvas.width;
-    const imgHeightPx = canvas.height;
-    const scale = pdfWidth / imgWidthPx;
-    const pageHeightPx = pdfHeight / scale;
-
-    let breaks = [];
-    if (table) {
-      const elementTop = element.getBoundingClientRect().top;
-      const rows = Array.from(table.querySelectorAll('tbody tr'));
-      breaks = rows.map(r => r.getBoundingClientRect().bottom - elementTop);
-      // Ensure last break includes entire element height
-      if (breaks[breaks.length - 1] < imgHeightPx) breaks.push(imgHeightPx);
-    } else {
-      breaks = [imgHeightPx];
-    }
-
-    let startPx = 0;
-    while (startPx < imgHeightPx - 1) {
-      // Find the largest break <= startPx + pageHeightPx
-      const target = startPx + pageHeightPx;
-      const nextBreak = breaks.reduce((acc, b) => (b <= target ? b : acc), startPx + pageHeightPx);
-      const y = -startPx * scale;
-      if (startPx > 0) doc.addPage();
-      doc.addImage(imgData, 'PNG', 0, y, pdfWidth, imgHeightPx * scale);
-      startPx = nextBreak;
-    }
-    doc.save(`orcamento_${budgetId}.pdf`);
-  };
-
   const handlePrintNative = () => {
     window.print();
   };
+
+  const getDataUri = (url) => {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      image.onerror = () => {
+        console.error('Erro ao carregar imagem para PDF');
+        resolve(null);
+      };
+      image.src = url;
+    });
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      const doc = new jsPDF();
+      
+      // Adicionar Logo
+      if (companyLogo) {
+        const logoData = await getDataUri(companyLogo);
+        if (logoData) {
+          doc.addImage(logoData, 'PNG', 14, 10, 50, 25);
+        }
+      }
+
+      // Dados da Empresa (Lado Direito)
+      doc.setFontSize(10);
+      let yPos = 15;
+      if (companyData) {
+        const companyInfo = [
+          companyData.nome_fantasia,
+          companyData.endereco,
+          companyData.email,
+          `Tel: ${companyData.telefone}`
+        ].filter(Boolean);
+
+        companyInfo.forEach(line => {
+          doc.text(line, 196, yPos, { align: 'right' });
+          yPos += 5;
+        });
+      }
+
+      // Título do Orçamento
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Orçamento #${budget.numero_orcamento || budget.id}`, 14, 45);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString()}`, 14, 52);
+      doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}`, 14, 57);
+
+      // Dados do Cliente
+      if (budget.clientes) {
+        doc.rect(14, 62, 182, 25);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text('DADOS DO CLIENTE', 16, 68);
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Nome: ${budget.clientes.name}`, 16, 74);
+        doc.text(`Endereço: ${budget.clientes.address || 'Não informado'}`, 16, 79);
+        doc.text(`Contato: ${budget.clientes.phone || ''} | ${budget.clientes.email || ''}`, 16, 84);
+      }
+
+      // Tabela de Itens
+      const tableRows = buildPdfRows().map(row => {
+        // Formatar descrição para quebrar linhas corretamente no PDF
+        row[0] = row[0].replace(/ \| /g, '\n');
+        return row;
+      });
+
+      autoTable(doc, {
+        startY: 95,
+        head: [['DESCRIÇÃO', 'AMBIENTE', 'QTD', 'VALOR UNIT.', 'VALOR TOTAL']],
+        body: tableRows,
+        theme: 'grid',
+        headStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 2 },
+        columnStyles: {
+          0: { cellWidth: 80 }, // Descrição
+          1: { cellWidth: 35 }, // Ambiente
+          2: { cellWidth: 15, halign: 'center' }, // Qtd
+          3: { cellWidth: 25, halign: 'right' }, // Unit
+          4: { cellWidth: 25, halign: 'right' }  // Total
+        },
+        foot: [[
+          { content: 'TOTAL:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: formatCurrency(Number(budget.valor_total || 0)), styles: { halign: 'right', fontStyle: 'bold' } }
+        ]]
+      });
+
+      doc.save(`orcamento_${budget.numero_orcamento || budget.id}.pdf`);
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err);
+      alert('Erro ao gerar PDF. Tente usar a opção de Imprimir.');
+    }
+  };
+
+  if (loading) return <div className="loading">Carregando detalhes do orçamento...</div>;
+  if (error) return <div className="error">{error}</div>;
+  if (!budget) return <div className="error">Orçamento não encontrado.</div>;
+
+  const budgetProducts = JSON.parse(budget.produtos_json || '[]');
+  const budgetAccessories = JSON.parse(budget.acessorios_json || '[]');
 
   const renderCustomerInfo = () => {
     if (!budget || !budget.clientes) {
@@ -381,43 +474,6 @@ function BudgetDetailsPage({ companyLogo }) {
       </div>
     );
   };
-
-  if (loading) return <p>Carregando...</p>;
-  if (error) return <p>Erro: {error}</p>;
-  if (!budget) return <p>Orçamento não encontrado.</p>;
-
-  console.log('Rendering budget:', budget);
-  console.log('Products:', products);
-  console.log('All accessories:', accessories);
-
-  const budgetProducts = JSON.parse(budget.produtos_json || '[]');
-  let budgetAccessories = [];
-  try {
-    budgetAccessories = JSON.parse(budget.acessorios_json || '[]');
-    console.log('Raw accessories JSON:', budget.acessorios_json);
-    console.log('Parsed accessories:', budgetAccessories);
-    
-    // Log each accessory ID for debugging
-    if (budgetAccessories.length > 0) {
-      console.log('Accessory IDs in budget:', budgetAccessories.map(a => {
-        return {
-          id: a.accessory_id,
-          id_type: typeof a.accessory_id
-        };
-      }));
-      
-      // Log each accessory in the loaded accessories array
-      console.log('Available accessory IDs:', accessories.map(a => {
-        return {
-          id: a.id, 
-          id_type: typeof a.id,
-          name: a.name
-        };
-      }));
-    }
-  } catch (e) {
-    console.error('Error parsing accessories:', e);
-  }
 
   return (
     <div className="budget-details-page">
@@ -560,8 +616,14 @@ function BudgetDetailsPage({ companyLogo }) {
       </div>
 
       <div className="action-buttons">
-        <button className="action-button print-button" onClick={handleGeneratePDF}>
-          Gerar PDF
+        <button className="action-button back-button" onClick={() => navigate('/budgets')}>
+           Voltar
+        </button>
+        <button className="action-button print-button" onClick={handlePrintNative} style={{ marginRight: '10px' }}>
+          Imprimir
+        </button>
+        <button className="action-button print-button" onClick={handleDownloadPDF} style={{ backgroundColor: '#2196F3' }}>
+          Baixar PDF
         </button>
       </div>
     </div>

@@ -40,27 +40,60 @@ function App() {
   const [onlineStatus, setOnlineStatus] = useState(null);
 
   useEffect(() => {
-    const checkInitialData = async () => {
+    // Carregar dados iniciais
+    const loadInitialData = async () => {
       setLoading(true);
       
-      // Verificar se há conexão com a internet
-      const isOnline = navigator.onLine;
-      setOnlineStatus(isOnline);
+      // 1. Tentar carregar configurações (logo) do Supabase primeiro
+      try {
+        const { data: configData, error } = await supabase
+          .from('configuracoes')
+          .select('*')
+          .single();
+          
+        if (configData?.company_logo) {
+          console.log('Logo carregado do Supabase:', configData.company_logo);
+          setCompanyLogo(configData.company_logo);
+          
+          // Atualizar cache local
+          try {
+            await localDB.put('configuracoes', configData);
+          } catch (e) {
+            console.error('Erro ao atualizar cache local de configurações:', e);
+          }
+        } else {
+          // Se falhar ou não tiver no Supabase, tentar cache local
+          const localConfig = await localDB.get('configuracoes', 1);
+          if (localConfig?.company_logo) {
+            console.log('Logo carregado do cache local:', localConfig.company_logo);
+            setCompanyLogo(localConfig.company_logo);
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao carregar configurações:', error);
+        // Fallback para cache local em caso de erro
+        try {
+          const localConfig = await localDB.get('configuracoes', 1);
+          if (localConfig?.company_logo) {
+            setCompanyLogo(localConfig.company_logo);
+          }
+        } catch (e) {
+          console.error('Erro ao carregar cache local:', e);
+        }
+      }
+
+      // 2. Carregar outros dados do cache para exibição rápida
+      await loadFromCache();
       
-      if (isOnline) {
-        // Se estiver online, sempre priorize carregar dados da API
-        // O fetchBudgets já foi chamado no useEffect anterior, não precisamos chamar novamente
-        console.log('Online, loading data from Supabase directly');
-      } else {
-        // Se estiver offline, tente carregar do cache
-        console.log('Offline, loading from cache');
-        await loadFromCache();
+      // 3. Sincronizar em background se estiver online
+      if (navigator.onLine) {
+        syncData();
       }
       
       setLoading(false);
     };
-    
-    checkInitialData();
+
+    loadInitialData();
     
     // Adicionar listeners para detectar mudanças no status de conexão
     const handleOnline = () => {

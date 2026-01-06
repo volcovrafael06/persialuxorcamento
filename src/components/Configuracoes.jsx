@@ -199,9 +199,8 @@ function Configuracoes({ setCompanyLogo }) {
       const file = e.target.files[0];
       if (!file) return;
 
-      // Check file size (max 200KB)
-      if (file.size > 200 * 1024) {
-        setError('O arquivo é muito grande. O tamanho máximo é 200KB.');
+      if (file.size > 600 * 1024) {
+        setError('O arquivo é muito grande. O tamanho máximo é 600KB.');
         return;
       }
 
@@ -221,8 +220,7 @@ function Configuracoes({ setCompanyLogo }) {
       const { data, error: uploadError } = await supabase.storage
         .from('images')
         .upload(`logos/${fileName}`, file, {
-          cacheControl: '3600',
-          upsert: true
+          cacheControl: '3600'
         });
 
       if (uploadError) {
@@ -239,16 +237,26 @@ function Configuracoes({ setCompanyLogo }) {
       setLocalCompanyLogo(publicUrl);
       setCompanyLogo(publicUrl);
 
-      // Save to database
-      const { error: dbError } = await supabase
+      const { data: cfg } = await supabase
         .from('configuracoes')
-        .update({ 
-          company_logo: publicUrl 
-        })
-        .eq('id', 1);
+        .select('id')
+        .single();
+
+      let dbError = null;
+      if (cfg?.id) {
+        const { error } = await supabase
+          .from('configuracoes')
+          .update({ company_logo: publicUrl })
+          .eq('id', cfg.id);
+        dbError = error;
+      } else {
+        const { error } = await supabase
+          .from('configuracoes')
+          .insert([{ company_logo: publicUrl }]);
+        dbError = error;
+      }
 
       if (dbError) {
-        console.error('Database error:', dbError);
         throw new Error('Erro ao salvar no banco de dados: ' + dbError.message);
       }
 
@@ -274,24 +282,52 @@ function Configuracoes({ setCompanyLogo }) {
       setError(null);
 
       // Salvar configurações gerais
-      const { error: configError } = await supabase
+      const { data: existingConfig } = await supabase
         .from('configuracoes')
-        .update({
-          cnpj,
-          razao_social: razaoSocial,
-          nome_fantasia: nomeFantasia,
-          endereco,
-          telefone,
-          validade_orcamento: validadeOrcamento,
-          formula_m2: formulaM2,
-          formula_comprimento: formulaComprimento,
-          formula_bando: formulaBando,
-          formula_instalacao: formulaInstalacao,
-          company_logo: localCompanyLogo,
-          bando_custo: bandoCusto,
-          bando_venda: bandoVenda
-        })
-        .eq('id', 1);
+        .select('id')
+        .single();
+
+      let configError = null;
+      if (existingConfig?.id) {
+        const { error } = await supabase
+          .from('configuracoes')
+          .update({
+            cnpj,
+            razao_social: razaoSocial,
+            nome_fantasia: nomeFantasia,
+            endereco,
+            telefone,
+            validade_orcamento: validadeOrcamento,
+            formula_m2: formulaM2,
+            formula_comprimento: formulaComprimento,
+            formula_bando: formulaBando,
+            formula_instalacao: formulaInstalacao,
+            company_logo: localCompanyLogo,
+            bando_custo: bandoCusto,
+            bando_venda: bandoVenda
+          })
+          .eq('id', existingConfig.id);
+        configError = error;
+      } else {
+        const { error } = await supabase
+          .from('configuracoes')
+          .insert([{ 
+            cnpj,
+            razao_social: razaoSocial,
+            nome_fantasia: nomeFantasia,
+            endereco,
+            telefone,
+            validade_orcamento: validadeOrcamento,
+            formula_m2: formulaM2,
+            formula_comprimento: formulaComprimento,
+            formula_bando: formulaBando,
+            formula_instalacao: formulaInstalacao,
+            company_logo: localCompanyLogo,
+            bando_custo: bandoCusto,
+            bando_venda: bandoVenda
+          }]);
+        configError = error;
+      }
 
       if (configError) throw configError;
 
@@ -521,7 +557,7 @@ function Configuracoes({ setCompanyLogo }) {
           />
         </div>
         <div className="form-group">
-          <label htmlFor="logo">Anexar Logo da Empresa (Max 200KB):</label>
+          <label htmlFor="logo">Anexar Logo da Empresa (Max 600KB):</label>
           <input type="file" id="logo" onChange={handleLogoChange} />
         </div>
         <div className="form-group">

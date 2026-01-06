@@ -8,7 +8,7 @@ function SelectOrCreate({ options, value, labelKey, valueKey, onChange, onCreate
 
   useEffect(() => {
     if (value) {
-      setSelectedValue(value[valueKey] || '');
+      setSelectedValue(String(value[valueKey] || ''));
     } else {
       setSelectedValue('');
     }
@@ -17,7 +17,7 @@ function SelectOrCreate({ options, value, labelKey, valueKey, onChange, onCreate
   const handleChange = (e) => {
     const val = e.target.value;
     setSelectedValue(val);
-    const selectedOption = options.find(option => option[valueKey] === val);
+    const selectedOption = options.find(option => String(option[valueKey]) === String(val));
     onChange(selectedOption || null);
   };
 
@@ -58,7 +58,7 @@ function SelectOrCreate({ options, value, labelKey, valueKey, onChange, onCreate
           >
             <option value="">Selecione</option>
             {options.map((option) => (
-              <option key={option[valueKey]} value={option[valueKey]}>
+              <option key={String(option[valueKey])} value={String(option[valueKey])}>
                 {formatOptionLabel(option)}
               </option>
             ))}

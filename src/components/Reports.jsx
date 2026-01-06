@@ -594,7 +594,7 @@ function Reports({ budgets: initialBudgets }) {
                               {(budget.produtos || []).map((prod, index) => (
                                 <tr key={index} className="product-detail-row">
                                   <td>
-                                    <strong>{prod.produto?.nome || 'Nome não encontrado'}</strong>
+                                    <strong>{prod.produto?.nome || prod.produto?.name || prod.product?.nome || prod.product?.name || prod.nome || prod.name || 'Nome não encontrado'}</strong>
                                     {prod.cost?.dimensions?.usedMinimum && (
                                       <div className="minimum-warning">
                                         Dimensões mínimas aplicadas
