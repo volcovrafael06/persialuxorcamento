@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && cp -r public/*.js dist/ && cp public/_redirects dist/ && cp public/_routes.json dist/",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler pages deploy dist"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.1",
