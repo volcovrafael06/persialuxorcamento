@@ -15,7 +15,12 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
     accessories: [],
     observation: '',
     totalValue: 0,
-    negotiatedValue: null
+    negotiatedValue: null,
+    paymentMethod: 'standard',
+    paymentInstallments: 0,
+    paymentTaxRate: 0,
+    paymentDiscountRate: 0,
+    paymentConditions: []
   });
 
   const [currentProduct, setCurrentProduct] = useState({
@@ -62,6 +67,12 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
     trilho_slim_sem_comando: { sale_price: 0 },
     trilho_quadrado_gancho: { sale_price: 0 },
     trilho_motorizado: { sale_price: 0 }
+  });
+  const [currentPayment, setCurrentPayment] = useState({
+    method: 'credit_card',
+    installments: 0,
+    taxRate: 0,
+    discountRate: 0
   });
 
   useEffect(() => {
@@ -282,7 +293,31 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
             accessories,
             observation: budget.observacao || '',
             totalValue: budget.valor_total || 0,
-            negotiatedValue: budget.valor_negociado
+            negotiatedValue: budget.valor_negociado,
+            paymentMethod: budget.payment_method || 'standard',
+            paymentInstallments: budget.payment_installments || 0,
+            paymentTaxRate: budget.payment_tax_rate || 0,
+            paymentDiscountRate: budget.payment_discount_rate || 0,
+            paymentConditions: (() => {
+              try {
+                const pcs = budget.payment_conditions ? JSON.parse(budget.payment_conditions) : null;
+                if (Array.isArray(pcs)) return pcs;
+              } catch {}
+              const arr = [];
+              if (budget.payment_method === 'credit_card') {
+                arr.push({
+                  method: 'credit_card',
+                  installments: budget.payment_installments || 0,
+                  taxRate: budget.payment_tax_rate || 0
+                });
+              } else if (budget.payment_method === 'pix') {
+                arr.push({
+                  method: 'pix',
+                  discountRate: budget.payment_discount_rate || 0
+                });
+              }
+              return arr;
+            })()
           });
         } catch (error) {
           console.error('Error loading budget:', error);
@@ -1115,7 +1150,12 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         valor_negociado: newBudget.negotiatedValue,
         ambientes: Array.from(new Set((newBudget.products || []).map(p => (p.ambiente || '').trim()).filter(Boolean))),
         status: isEditing ? undefined : 'pending',
-        numero_orcamento: isEditing ? undefined : nextBudgetNumber // Adiciona o número do orçamento apenas para novos orçamentos
+        numero_orcamento: isEditing ? undefined : nextBudgetNumber, // Adiciona o número do orçamento apenas para novos orçamentos
+        payment_method: (newBudget.paymentConditions[0]?.method) || newBudget.paymentMethod,
+        payment_installments: (newBudget.paymentConditions[0]?.installments) ?? newBudget.paymentInstallments,
+        payment_tax_rate: (newBudget.paymentConditions[0]?.taxRate) ?? newBudget.paymentTaxRate,
+        payment_discount_rate: (newBudget.paymentConditions[0]?.discountRate) ?? newBudget.paymentDiscountRate,
+        payment_conditions: JSON.stringify(newBudget.paymentConditions || [])
       };
 
       console.log('Saving budget with data:', budgetData);
@@ -1200,6 +1240,67 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
   const productsTotal = newBudget.products.reduce((sum, prod) => sum + (prod.subtotal || 0), 0);
   const accessoriesTotal = newBudget.accessories.reduce((sum, acc) => sum + (acc.subtotal || 0), 0);
   const totalValue = productsTotal + accessoriesTotal;
+
+  const calculateInstallmentValue = () => {
+    const total = newBudget.negotiatedValue || totalValue;
+    const rate = parseFloat(newBudget.paymentTaxRate) || 0;
+    const installments = parseInt(newBudget.paymentInstallments) || 1;
+    
+    if (installments <= 0) return 0;
+    
+    const increasedTotal = total * (1 + rate / 100);
+    return increasedTotal / installments;
+  };
+
+  const calculateDiscountValue = () => {
+    const total = newBudget.negotiatedValue || totalValue;
+    const rate = parseFloat(newBudget.paymentDiscountRate) || 0;
+    return total * (1 - rate / 100);
+  };
+  const calculateConditionInstallment = (pc) => {
+    const total = newBudget.negotiatedValue || totalValue;
+    const rate = parseFloat(pc.taxRate) || 0;
+    const installments = parseInt(pc.installments) || 1;
+    if (!installments || installments <= 0) return 0;
+    const increasedTotal = total * (1 + rate / 100);
+    return increasedTotal / installments;
+  };
+  const calculateConditionTotalWithInterest = (pc) => {
+    const per = calculateConditionInstallment(pc);
+    const installments = parseInt(pc.installments) || 1;
+    return per * installments;
+  };
+  const calculateConditionPix = (pc) => {
+    const total = newBudget.negotiatedValue || totalValue;
+    const rate = parseFloat(pc.discountRate) || 0;
+    return total * (1 - rate / 100);
+  };
+  const handleAddPaymentCondition = () => {
+    if (currentPayment.method === 'credit_card') {
+      if (!currentPayment.installments || currentPayment.installments < 1) {
+        setError('Informe o número de parcelas para o cartão');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+    }
+    const pc = { ...currentPayment };
+    setNewBudget(prev => ({
+      ...prev,
+      paymentConditions: [...(prev.paymentConditions || []), pc]
+    }));
+    setCurrentPayment({
+      method: 'credit_card',
+      installments: 0,
+      taxRate: 0,
+      discountRate: 0
+    });
+  };
+  const handleRemovePaymentCondition = (index) => {
+    setNewBudget(prev => ({
+      ...prev,
+      paymentConditions: (prev.paymentConditions || []).filter((_, i) => i !== index)
+    }));
+  };
 
   const renderDimensionFields = () => {
     const isWaveModel = currentProduct.product?.modelo?.toUpperCase() === 'WAVE';
@@ -1648,6 +1749,96 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
               Desconto: {((1 - newBudget.negotiatedValue / newBudget.totalValue) * 100).toFixed(2)}%
             </p>
           )}
+        </div>
+
+        {/* Condições de Pagamento */}
+        <div className="form-section">
+          <h3>Condições de Pagamento</h3>
+          <div className="payment-options-container" style={{ display: 'grid', gap: '12px' }}>
+            <div className="payment-add" style={{ display: 'grid', gridTemplateColumns: '200px 1fr 1fr 120px', gap: '10px', alignItems: 'end' }}>
+              <div className="form-group">
+                <label>Método:</label>
+                <select
+                  value={currentPayment.method}
+                  onChange={(e) => setCurrentPayment(prev => ({ ...prev, method: e.target.value }))}
+                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                >
+                  <option value="credit_card">Cartão de Crédito</option>
+                  <option value="pix">À Vista (PIX)</option>
+                </select>
+              </div>
+              {currentPayment.method === 'credit_card' && (
+                <>
+                  <div className="form-group">
+                    <label>Parcelas:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={currentPayment.installments || ''}
+                      onChange={(e) => setCurrentPayment(prev => ({ ...prev, installments: parseInt(e.target.value) || 0 }))}
+                      placeholder="Ex: 10"
+                      style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Taxa de Juros (%):</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={currentPayment.taxRate || ''}
+                      onChange={(e) => setCurrentPayment(prev => ({ ...prev, taxRate: parseFloat(e.target.value) || 0 }))}
+                      placeholder="Ex: 5"
+                      style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                    />
+                  </div>
+                </>
+              )}
+              {currentPayment.method === 'pix' && (
+                <div className="form-group">
+                  <label>Desconto (%):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={currentPayment.discountRate || ''}
+                    onChange={(e) => setCurrentPayment(prev => ({ ...prev, discountRate: parseFloat(e.target.value) || 0 }))}
+                    placeholder="Ex: 5"
+                    style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                className="add-payment-condition"
+                onClick={handleAddPaymentCondition}
+                style={{ padding: '10px 12px' }}
+              >
+                Adicionar condição
+              </button>
+            </div>
+            {newBudget.paymentConditions.length > 0 && (
+              <div className="payment-list" style={{ marginTop: '6px' }}>
+                {newBudget.paymentConditions.map((pc, idx) => (
+                  <div key={idx} className="payment-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f9f9f9', padding: '10px', borderRadius: '6px', marginBottom: '8px' }}>
+                    <div>
+                      {pc.method === 'credit_card' ? (
+                        <span>
+                          Cartão: {pc.installments}x de R$ {calculateConditionInstallment(pc).toFixed(2)}
+                          {pc.taxRate > 0 ? ` (Total: R$ ${calculateConditionTotalWithInterest(pc).toFixed(2)})` : ''}
+                        </span>
+                      ) : (
+                        <span>
+                          À Vista (PIX): R$ {calculateConditionPix(pc).toFixed(2)} {pc.discountRate ? `com ${pc.discountRate}% de desconto` : ''}
+                        </span>
+                      )}
+                    </div>
+                    <button type="button" onClick={() => handleRemovePaymentCondition(idx)} style={{ padding: '6px 8px' }}>
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Total Value and Submit */}

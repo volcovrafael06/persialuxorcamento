@@ -360,6 +360,18 @@ function BudgetDetailsPage({ companyLogo }) {
     });
   };
 
+  const calculateInstallmentValueFromCondition = (budgetData, pc) => {
+    const total = Number(budgetData.valor_negociado) || Number(budgetData.valor_total) || 0;
+    const rate = parseFloat(pc.taxRate) || 0;
+    const installments = parseInt(pc.installments) || 1;
+    const increasedTotal = total * (1 + rate / 100);
+    return installments > 0 ? increasedTotal / installments : 0;
+  };
+  const calculateDiscountValueFromCondition = (budgetData, pc) => {
+    const total = Number(budgetData.valor_negociado) || Number(budgetData.valor_total) || 0;
+    const discountRate = parseFloat(pc.discountRate) || 0;
+    return total * (1 - discountRate / 100);
+  };
   const handleDownloadPDF = async () => {
     try {
       const doc = new jsPDF();
@@ -420,6 +432,75 @@ function BudgetDetailsPage({ companyLogo }) {
         return row;
       });
 
+      // Prepare footer rows for PDF
+      const footerRows = [];
+      
+      // Total row
+      footerRows.push([
+        { content: 'TOTAL:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: formatCurrency(Number(budget.valor_total || 0)), styles: { halign: 'right', fontStyle: 'bold' } }
+      ]);
+
+      // Negotiated Value row (if exists)
+      if (budget.valor_negociado && Number(budget.valor_negociado) !== Number(budget.valor_total)) {
+        footerRows.push([
+          { content: 'VALOR NEGOCIADO:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', textColor: [0, 100, 0] } },
+          { content: formatCurrency(budget.valor_negociado), styles: { halign: 'right', fontStyle: 'bold', textColor: [0, 100, 0] } }
+        ]);
+      }
+
+      // Payment Conditions (multiple or single)
+      let conditions = [];
+      try {
+        conditions = budget.payment_conditions ? JSON.parse(budget.payment_conditions) : [];
+      } catch {}
+      if (Array.isArray(conditions) && conditions.length > 0) {
+        conditions.forEach(pc => {
+          if (pc.method === 'credit_card') {
+            const per = calculateInstallmentValueFromCondition(budget, pc);
+            const installments = parseInt(pc.installments) || 1;
+            const totalWithInterest = per * installments;
+            footerRows.push([
+              { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO - ${installments}x):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
+              { content: `${installments}x de ${formatCurrency(per)}`, styles: { halign: 'right', fontStyle: 'italic' } }
+            ]);
+            if (parseFloat(pc.taxRate) > 0) {
+              footerRows.push([
+                { content: `TOTAL COM JUROS (${pc.taxRate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
+                { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic' } }
+              ]);
+            }
+          } else if (pc.method === 'pix') {
+            const discountedValue = calculateDiscountValueFromCondition(budget, pc);
+            footerRows.push([
+              { content: `CONDIÇÃO DE PAGAMENTO (PIX - ${pc.discountRate || 0}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
+              { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic' } }
+            ]);
+          }
+        });
+      } else {
+        if (budget.payment_method === 'credit_card') {
+          const installmentValue = calculateInstallmentValue(budget);
+          const totalWithInterest = installmentValue * (parseInt(budget.payment_installments) || 1);
+          footerRows.push([
+            { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO - ${budget.payment_installments}x):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
+            { content: `${budget.payment_installments}x de ${formatCurrency(installmentValue)}`, styles: { halign: 'right', fontStyle: 'italic' } }
+          ]);
+          if (parseFloat(budget.payment_tax_rate) > 0) {
+            footerRows.push([
+              { content: `TOTAL COM JUROS (${budget.payment_tax_rate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
+              { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic' } }
+            ]);
+          }
+        } else if (budget.payment_method === 'pix' && parseFloat(budget.payment_discount_rate) > 0) {
+          const discountedValue = calculateDiscountValue(budget);
+          footerRows.push([
+            { content: `CONDIÇÃO DE PAGAMENTO (PIX - ${budget.payment_discount_rate}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
+            { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic' } }
+          ]);
+        }
+      }
+
       autoTable(doc, {
         startY: 95,
         head: [['DESCRIÇÃO', 'AMBIENTE', 'QTD', 'VALOR UNIT.', 'VALOR TOTAL']],
@@ -434,10 +515,7 @@ function BudgetDetailsPage({ companyLogo }) {
           3: { cellWidth: 25, halign: 'right' }, // Unit
           4: { cellWidth: 25, halign: 'right' }  // Total
         },
-        foot: [[
-          { content: 'TOTAL:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold' } },
-          { content: formatCurrency(Number(budget.valor_total || 0)), styles: { halign: 'right', fontStyle: 'bold' } }
-        ]]
+        foot: footerRows
       });
 
       doc.save(`orcamento_${budget.numero_orcamento || budget.id}.pdf`);
@@ -610,6 +688,71 @@ function BudgetDetailsPage({ companyLogo }) {
                 <td className="description total-label" colSpan="4">TOTAL:</td>
                 <td className="total">{formatCurrency(Number(budget.valor_total || 0))}</td>
               </tr>
+              {budget.valor_negociado && Number(budget.valor_negociado) !== Number(budget.valor_total) && (
+                <tr>
+                  <td className="description total-label" colSpan="4" style={{ color: 'green' }}>VALOR NEGOCIADO:</td>
+                  <td className="total" style={{ color: 'green' }}>{formatCurrency(budget.valor_negociado)}</td>
+                </tr>
+              )}
+              {(() => {
+                let conditions = [];
+                try {
+                  conditions = budget.payment_conditions ? JSON.parse(budget.payment_conditions) : [];
+                } catch {}
+                if (Array.isArray(conditions) && conditions.length > 0) {
+                  return conditions.map((pc, i) => (
+                    <tr key={`pc-${i}`}>
+                      <td className="description total-label" colSpan="4" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                        {pc.method === 'credit_card'
+                          ? `Condição de Pagamento (Cartão em ${pc.installments}x):`
+                          : `Condição de Pagamento (PIX com ${pc.discountRate || 0}% de desconto):`}
+                      </td>
+                      <td className="total" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                        {pc.method === 'credit_card'
+                          ? `${pc.installments}x de ${formatCurrency(calculateInstallmentValueFromCondition(budget, pc))}`
+                          : formatCurrency(calculateDiscountValueFromCondition(budget, pc))}
+                      </td>
+                    </tr>
+                  ));
+                }
+                if (budget.payment_method === 'credit_card') {
+                  return (
+                    <>
+                      <tr>
+                        <td className="description total-label" colSpan="4" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                          Condição de Pagamento (Cartão em {budget.payment_installments}x):
+                        </td>
+                        <td className="total" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                          {budget.payment_installments}x de {formatCurrency(calculateInstallmentValue(budget))}
+                        </td>
+                      </tr>
+                      {parseFloat(budget.payment_tax_rate) > 0 && (
+                        <tr>
+                          <td className="description total-label" colSpan="4" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                            Total com Juros ({budget.payment_tax_rate}%):
+                          </td>
+                          <td className="total" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                            {formatCurrency(calculateInstallmentValue(budget) * budget.payment_installments)}
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                }
+                if (budget.payment_method === 'pix' && parseFloat(budget.payment_discount_rate) > 0) {
+                  return (
+                    <tr>
+                      <td className="description total-label" colSpan="4" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                        Condição de Pagamento (PIX com {budget.payment_discount_rate}% de desconto):
+                      </td>
+                      <td className="total" style={{ fontStyle: 'italic', fontSize: '0.9em' }}>
+                        {formatCurrency(calculateDiscountValue(budget))}
+                      </td>
+                    </tr>
+                  );
+                }
+                return null;
+              })()}
             </tfoot>
           </table>
         </div>
