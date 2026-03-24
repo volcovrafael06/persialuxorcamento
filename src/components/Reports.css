@@ -1,0 +1,269 @@
+.reports-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.filter-options {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-options label {
+  font-weight: 500;
+}
+
+.filter-options select,
+.filter-options input {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin: 20px 0;
+}
+
+.summary-card {
+  background-color: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.summary-card h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 1.2em;
+}
+
+.summary-card p {
+  margin: 8px 0;
+  font-size: 0.95em;
+  color: #666;
+}
+
+.summary-card p:last-child {
+  margin-bottom: 0;
+}
+
+.product-details {
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  margin: 10px 0;
+  width: 100%;
+  overflow: visible;
+}
+
+.product-detail-item {
+  margin-bottom: 20px;
+  padding: 15px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  background-color: white;
+  width: 100%;
+  overflow: visible;
+}
+
+.product-details-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 15px;
+  background-color: white;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.product-details-table th,
+.product-details-table td {
+  padding: 10px;
+  text-align: left;
+  border: 1px solid #dee2e6;
+  vertical-align: top;
+}
+
+.product-details-table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  color: #495057;
+}
+
+.product-details-table tr:hover {
+  background-color: #f8f9fa;
+}
+
+.product-detail-row td {
+  font-size: 0.9em;
+}
+
+.product-subtotal {
+  font-weight: bold;
+  text-align: right;
+  background-color: #f8f9fa;
+}
+
+.product-extras-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  flex: 2;
+}
+
+.extra-item {
+  flex: 1;
+  min-width: 200px;
+  padding: 10px;
+  border-radius: 4px;
+  background-color: #f8f9fa;
+}
+
+.total-section {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #e9ecef;
+  border-radius: 4px;
+  text-align: right;
+  font-weight: bold;
+}
+
+.details-row td {
+  padding: 0;
+}
+
+.details-row td > div {
+  padding: 15px;
+  width: 100%;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.report-table th,
+.report-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.report-table th {
+  background-color: #f5f5f5;
+  font-weight: 600;
+  color: #333;
+}
+
+.report-table tr:hover {
+  background-color: #f8f8f8;
+}
+
+.report-table td {
+  font-size: 0.9em;
+  color: #444;
+  white-space: normal;
+  word-wrap: break-word;
+  /* max-width: 200px; */ /* Removido para corrigir layout dos detalhes */
+  vertical-align: top;
+}
+
+/* Estilo especial para valores monetários */
+.report-table td:nth-child(3),
+.report-table td:nth-child(4),
+.report-table td:nth-child(5),
+.report-table td:nth-child(6) {
+  font-family: monospace;
+  text-align: right;
+}
+
+/* Estilo para porcentagens */
+.report-table td:nth-child(7) {
+  text-align: right;
+  font-weight: 500;
+}
+
+/* Estilo para quantidades */
+.report-table td:nth-child(8),
+.report-table td:nth-child(9) {
+  text-align: center;
+}
+
+/* Responsividade */
+@media (max-width: 1024px) {
+  .reports-container {
+    padding: 10px;
+  }
+  
+  .report-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
+.loading-indicator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  width: 100%;
+}
+
+.loading-indicator p {
+  font-size: 1.2em;
+  color: #666;
+}
+
+.product-info-section {
+  margin: 10px 0;
+}
+
+.product-info-section p {
+  margin: 5px 0;
+}
+
+.bando-section,
+.installation-section,
+.trilho-section {
+  margin: 5px 0;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.bando-section h6,
+.installation-section h6,
+.trilho-section h6 {
+  margin: 0 0 10px 0;
+  color: #495057;
+  text-transform: capitalize;
+}
+
+.subtotal {
+  margin-top: 15px;
+  padding-top: 10px;
+  border-top: 1px solid #dee2e6;
+  width: 100%;
+  text-align: right;
+  font-weight: bold;
+}
+
+.minimum-warning {
+  color: #e67e22;
+  font-weight: bold;
+  background-color: #fff3cd;
+  padding: 5px 10px;
+  border-radius: 4px;
+  margin: 5px 0;
+}

@@ -1,0 +1,180 @@
+.settings-section {
+  margin: 20px auto;
+  padding: 20px;
+  background-color: #f9f9f9;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  max-width: 1200px;
+}
+
+.settings-section h3 {
+  color: #2c3e50;
+  margin-bottom: 15px;
+  font-size: 1.2em;
+  text-align: center;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.settings-group {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.settings-group h4 {
+  color: #34495e;
+  margin-bottom: 12px;
+  font-size: 1em;
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.input-group {
+  margin-bottom: 12px;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 4px;
+  color: #555;
+  font-size: 0.85em;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 16px; /* Melhor tamanho para evitar zoom automático em iOS */
+  transition: border-color 0.2s;
+  background-color: #f8f9fa;
+}
+
+.input-group input:focus {
+  border-color: #3498db;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(52,152,219,0.2);
+}
+
+.input-group input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.input-group input[type="number"]::-webkit-outer-spin-button,
+.input-group input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 15px -15px -15px -15px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 0 0 8px 8px;
+}
+
+.form-actions button {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 8px;
+}
+
+.save-button {
+  background-color: #4CAF50;
+  color: white;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  letter-spacing: 0.5px;
+}
+
+.save-button:hover {
+  background-color: #45a049;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+}
+
+.save-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+.save-message {
+  color: #2ecc71;
+  margin: 10px 0;
+  text-align: center;
+  font-size: 0.9em;
+}
+
+.error-message {
+  color: #e74c3c;
+  margin: 10px 0;
+  text-align: center;
+  font-size: 0.9em;
+}
+
+/* Estilos específicos para telas maiores */
+@media (min-width: 768px) {
+  .settings-section {
+    margin: 20px;
+    padding: 20px;
+  }
+
+  .settings-grid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+
+  .settings-section h3 {
+    font-size: 1.5em;
+  }
+
+  .settings-group h4 {
+    font-size: 1.1em;
+  }
+
+  .form-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+    margin: 20px 0 0 0;
+  }
+
+  .form-actions button {
+    width: auto;
+    margin-bottom: 0;
+  }
+}
+
+/* Ajustes para telas muito pequenas */
+@media (max-width: 320px) {
+  .settings-section {
+    margin: 5px;
+    padding: 10px;
+  }
+
+  .input-group input {
+    font-size: 14px;
+    padding: 8px;
+  }
+
+  .settings-group h4 {
+    font-size: 0.9em;
+  }
+}
