@@ -35,7 +35,8 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
               email,
               phone,
               address
-            )
+            ),
+            vendedores (*)
           `);
           
         if (error) {
@@ -183,7 +184,8 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
             <table>
               <thead>
                 <tr>
-                  <th>Cliente</th>
+                   <th>Cliente</th>
+                  <th>Vendedor</th>
                   <th>Valor Total</th>
                   <th>Data de Criação</th>
                   <th>Válido até</th>
@@ -195,6 +197,7 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                 {filteredBudgets.map(budget => (
                   <tr key={budget.id}>
                     <td data-component-name="BudgetList">{getCustomerDisplayName(budget)}</td>
+                    <td>{budget.vendedores?.nome || '-'}</td>
                     <td>
                       {budget.valor_negociado ? (
                         <div>

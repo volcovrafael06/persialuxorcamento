@@ -17,16 +17,33 @@ function VisitScheduler() {
     state: '',
     date_time: '',
     notes: '',
+    vendedor_id: '',
   });
   const [editingVisitId, setEditingVisitId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [availableSellers, setAvailableSellers] = useState([]);
 
   useEffect(() => {
     fetchVisits();
+    fetchSellers();
   }, []);
+
+  const fetchSellers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('vendedores')
+        .select('*')
+        .order('nome', { ascending: true });
+      
+      if (error) throw error;
+      setAvailableSellers(data || []);
+    } catch (err) {
+      console.error('Error fetching sellers:', err);
+    }
+  };
 
   const fetchVisits = async () => {
     setLoading(true);
@@ -34,7 +51,10 @@ function VisitScheduler() {
     try {
       const { data, error } = await supabase
         .from('visits')
-        .select('*')
+        .select(`
+          *,
+          vendedores (nome)
+        `)
         .order('date_time', { ascending: true });
 
       if (error) {
@@ -232,6 +252,7 @@ function VisitScheduler() {
         state: visitToEdit.state,
         date_time: new Date(visitToEdit.date_time).toISOString().slice(0, 16),
         notes: visitToEdit.notes,
+        vendedor_id: visitToEdit.vendedor_id || '',
       });
       setEditingVisitId(visitId);
       setShowModal(true);
@@ -251,6 +272,7 @@ function VisitScheduler() {
       state: '',
       date_time: '',
       notes: '',
+      vendedor_id: '',
     });
     setEditingVisitId(null);
     setShowModal(false);
@@ -450,6 +472,12 @@ function VisitScheduler() {
                     {visit.notes}
                   </p>
                 )}
+                {visit.vendedores && (
+                  <p className="visit-seller">
+                    <i className="fas fa-user"></i>
+                    Vendedor: {visit.vendedores.nome}
+                  </p>
+                )}
               </div>
 
               <div className="visit-actions">
@@ -630,6 +658,23 @@ function VisitScheduler() {
                     onChange={handleInputChange}
                     placeholder="Observações adicionais"
                   />
+                </div>
+                <div className="form-group full-width">
+                  <label htmlFor="seller">Vendedor:</label>
+                  <select
+                    id="vendedor_id"
+                    name="vendedor_id"
+                    value={newVisit.vendedor_id}
+                    onChange={handleInputChange}
+                    className="form-control"
+                  >
+                    <option value="">Selecione um vendedor</option>
+                    {availableSellers.map(seller => (
+                      <option key={seller.id} value={seller.id}>
+                        {seller.nome}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="form-actions">

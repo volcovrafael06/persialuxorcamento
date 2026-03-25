@@ -44,7 +44,8 @@ function BudgetDetailsPage({ companyLogo }) {
               email,
               phone,
               address
-            )
+            ),
+            vendedores (*)
           `)
           .eq('id', budgetId)
           .maybeSingle();
@@ -410,6 +411,10 @@ function BudgetDetailsPage({ companyLogo }) {
       doc.setFont('helvetica', 'normal');
       doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString()}`, 14, 52);
       doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}`, 14, 57);
+      
+      if (budget.vendedores) {
+        doc.text(`Vendedor: ${budget.vendedores.nome}`, 14, 62);
+      }
 
       // Dados do Cliente
       if (budget.clientes) {
@@ -501,8 +506,10 @@ function BudgetDetailsPage({ companyLogo }) {
         }
       }
 
+      const tableStartY = budget.vendedores ? 98 : 95;
+
       autoTable(doc, {
-        startY: 95,
+        startY: tableStartY,
         head: [['DESCRIÇÃO', 'AMBIENTE', 'QTD', 'VALOR UNIT.', 'VALOR TOTAL']],
         body: tableRows,
         theme: 'grid',
@@ -592,6 +599,9 @@ function BudgetDetailsPage({ companyLogo }) {
           <h2>Orçamento #{budget.numero_orcamento || budget.id}</h2>
           <p>Data do Orçamento: {new Date(budget.created_at).toLocaleDateString()}</p>
           <p>Válido até: {calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}</p>
+          {budget.vendedores && (
+            <p><strong>Vendedor:</strong> {budget.vendedores.nome}</p>
+          )}
         </div>
 
         {renderCustomerInfo()}

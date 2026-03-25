@@ -11,6 +11,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
   const [newBudget, setNewBudget] = useState({
     customer: null,
+    seller: null,
     products: [],
     accessories: [],
     observation: '',
@@ -75,6 +76,8 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
     discountRate: 0
   });
 
+  const [sellers, setSellers] = useState([]);
+
   useEffect(() => {
     const fetchCustomers = async () => {
       try {
@@ -92,7 +95,23 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       }
     };
 
+    const fetchSellers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('vendedores')
+          .select('*')
+          .eq('ativo', true)
+          .order('nome');
+
+        if (error) throw error;
+        setSellers(data || []);
+      } catch (error) {
+        console.error('Error fetching sellers:', error);
+      }
+    };
+
     fetchCustomers();
+    fetchSellers();
   }, [updateParentCustomers]);
 
   useEffect(() => {
@@ -231,6 +250,10 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
                 email,
                 phone,
                 address
+              ),
+              vendedores (
+                id,
+                nome
               )
             `)
             .eq('id', budgetId)
@@ -289,6 +312,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
           setNewBudget({
             customer: budget.clientes,
+            vendedor: budget.vendedores || null,
             products,
             accessories,
             observation: budget.observacao || '',
@@ -1143,12 +1167,12 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
       const budgetData = {
         cliente_id: newBudget.customer.id,
+        vendedor_id: newBudget.seller?.id || null,
         valor_total: newBudget.totalValue,
         produtos_json: JSON.stringify(cleanProducts),
         observacao: newBudget.observation || '',
         acessorios_json: JSON.stringify(cleanAccessories),
         valor_negociado: newBudget.negotiatedValue,
-        ambientes: Array.from(new Set((newBudget.products || []).map(p => (p.ambiente || '').trim()).filter(Boolean))),
         status: isEditing ? undefined : 'pending',
         numero_orcamento: isEditing ? undefined : nextBudgetNumber, // Adiciona o número do orçamento apenas para novos orçamentos
         payment_method: (newBudget.paymentConditions[0]?.method) || newBudget.paymentMethod,
@@ -1174,7 +1198,8 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
               email,
               phone,
               address
-            )
+            ),
+            vendedores (*)
           `)
           .single();
 
@@ -1199,7 +1224,8 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
               email,
               phone,
               address
-            )
+            ),
+            vendedores (*)
           `)
           .single();
 
@@ -1486,6 +1512,27 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
             id="customer"
             name="customer"
           />
+        </div>
+
+        {/* Vendedor Section */}
+        <div className="form-section">
+          <h3>Vendedor</h3>
+          <select
+            className="form-control"
+            value={newBudget.seller?.id || ''}
+            onChange={(e) => {
+              const sellerId = e.target.value;
+              const selectedSeller = sellers.find(s => s.id === sellerId);
+              setNewBudget(prev => ({ ...prev, seller: selectedSeller || null }));
+            }}
+          >
+            <option value="">Selecione um vendedor</option>
+            {sellers.map((seller) => (
+              <option key={seller.id} value={seller.id}>
+                {seller.nome}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Produtos Section */}

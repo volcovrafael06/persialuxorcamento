@@ -76,7 +76,7 @@ function Configuracoes({ setCompanyLogo }) {
   const fetchSellers = async () => {
     setLoading(true);
     try {
-      let { data: sellersData, error: sellersError } = await supabase.from('sellers').select('*');
+      let { data: sellersData, error: sellersError } = await supabase.from('vendedores').select('*').order('nome');
       if (sellersError) throw sellersError;
       setSellers(sellersData || []);
     } catch (err) {
@@ -449,9 +449,9 @@ function Configuracoes({ setCompanyLogo }) {
 
     try {
       const { data, error } = await supabase
-        .from('sellers')
+        .from('vendedores')
         .insert([
-          { name: newSellerName, email: newSellerEmail }
+          { nome: newSellerName, email: newSellerEmail }
         ]);
 
       if (error) throw error;
@@ -471,7 +471,7 @@ function Configuracoes({ setCompanyLogo }) {
   const handleRemoveSeller = async (sellerId) => {
     try {
       const { error } = await supabase
-        .from('sellers')
+        .from('vendedores')
         .delete()
         .eq('id', sellerId);
 
@@ -807,7 +807,7 @@ function Configuracoes({ setCompanyLogo }) {
           <ul className="sellers-list">
             {sellers.map((seller) => (
               <li key={seller.id}>
-                {seller.name} ({seller.email})
+                {seller.nome} ({seller.email})
                 <button onClick={() => handleRemoveSeller(seller.id)} disabled={loading}>
                   {loading ? 'Removendo...' : 'Remover'}
                 </button>
