@@ -1127,18 +1127,6 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       setLoading(true);
       setError(null);
 
-      // Primeiro, vamos obter o próximo número de orçamento
-      let nextBudgetNumber = 985;
-      const { data: maxBudget } = await supabase
-        .from('orcamentos')
-        .select('numero_orcamento')
-        .order('numero_orcamento', { ascending: false })
-        .limit(1);
-
-      if (maxBudget && maxBudget.length > 0 && maxBudget[0].numero_orcamento) {
-        nextBudgetNumber = Math.max(985, maxBudget[0].numero_orcamento + 1);
-      }
-
       const cleanProducts = newBudget.products.map(product => ({
         produto_id: product.product.id,
         largura: parseFloat(product.width),
@@ -1173,8 +1161,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         observacao: newBudget.observation || '',
         acessorios_json: JSON.stringify(cleanAccessories),
         valor_negociado: newBudget.negotiatedValue,
-        status: isEditing ? undefined : 'pending',
-        numero_orcamento: isEditing ? undefined : nextBudgetNumber, // Adiciona o número do orçamento apenas para novos orçamentos
+        ...(!isEditing ? { status: 'pendente' } : {}),
         payment_method: (newBudget.paymentConditions[0]?.method) || newBudget.paymentMethod,
         payment_installments: (newBudget.paymentConditions[0]?.installments) ?? newBudget.paymentInstallments,
         payment_tax_rate: (newBudget.paymentConditions[0]?.taxRate) ?? newBudget.paymentTaxRate,
@@ -1210,7 +1197,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         result = data;
 
         setBudgets(prev => prev.map(b =>
-          b.id === parseInt(budgetId) ? { ...b, ...result } : b
+          String(b.id) === String(budgetId) ? { ...b, ...result } : b
         ));
       } else {
         const { data, error } = await supabase

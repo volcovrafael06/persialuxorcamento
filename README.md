@@ -1,53 +1,54 @@
-# bolt-generated-project
+# Persialux Orçamentos
 
-# Project Overview
-This project is a web-based application designed to provide a modern and user-friendly interface. It focuses on delivering a seamless experience for users without any mobile app components.
+Aplicação React/Vite de clientes, produtos, visitas e orçamentos, com Supabase no backend e deploy pelo Cloudflare Pages.
 
-## Setup Instructions
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   ```
-2. Navigate to the project directory:
-   ```bash
-   cd bolt-generated-project-main
-   ```
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Start the development server:
-   ```bash
-   npm start
-   ```
+## Desenvolvimento local
 
-## Usage
-Access the web interface by opening your browser and navigating to `http://localhost:3000`.
+Requisitos: Node.js 20 ou superior.
 
-## Deployment to Cloudflare Pages
+```bash
+cp .env.example .env.local
+npm install
+npm test
+npm run dev
+```
 
-### Manual Configuration
-1. Access the [Cloudflare Pages Dashboard](https://dash.cloudflare.com) and create a new project
-2. Connect your Git repository
-3. Configure the following build options:
-   - Build command: `npm run build`
-   - Build output directory: `dist`
-   - Node.js version: `18.x` (or higher)
+Preencha `.env.local` somente com a URL e a chave publicável do Supabase. Nunca exponha a chave `service_role` em variáveis `VITE_*`.
 
-### Troubleshooting SPA Routing
-The project already includes configurations to ensure that SPA routing works correctly on Cloudflare Pages:
+## PDF do cliente
 
-1. `_redirects` file in the `public` folder for route redirection
-2. `_routes.json` file for route configuration on Cloudflare
-3. Configurations in `index.html` to avoid issues with Cloudflare's lockdown-install.js
-4. Chunking configuration in `vite.config.js` for better performance
+O PDF baixado em **Visualizar orçamento** omite largura, altura, área e medida de cada folha. As medidas continuam salvas no orçamento e aparecem normalmente na visualização interna e na edição.
 
-If you encounter issues with "Removing unpermitted intrinsics lockdown-install.js", check:
-- The `public/lockdown-no-op.js` file is included in the build
-- Security initialization script configurations were added to `index.html`
+Os testes dessa regra ficam em `tests/budgetPresentation.test.js`.
 
-## Contributing
-Contributions are welcome! Please follow these steps:
-1. Fork the repository.
-2. Create a new branch for your feature or bugfix.
-3. Submit a pull request with a detailed description of your changes.
+## Ativação segura do Supabase Auth e da RLS
+
+A migração `supabase/migrations/20260722201630_secure_auth_rls_and_data_integrity.sql`:
+
+- troca os usuários e senhas embutidos no frontend pelo Supabase Auth;
+- bloqueia acesso anônimo às tabelas de negócio;
+- consolida as políticas RLS permissivas;
+- deixa o bucket `images` privado e usa URLs assinadas;
+- normaliza os status de orçamentos e visitas;
+- gera o número do orçamento de forma transacional no Postgres;
+- corrige chaves estrangeiras, índices e o cadastro de vendedores das visitas.
+
+Antes de aplicá-la em produção:
+
+1. Em **Supabase > Authentication > Users**, crie exatamente um usuário com e-mail e senha. Esse primeiro usuário será promovido pela migração a administrador ativo.
+2. Aplique a migração pelo Supabase CLI (`supabase db push`) ou pelo conector Supabase.
+3. Confirme que esse administrador consegue entrar e consultar os dados.
+4. Cadastros posteriores nascem inativos. A ativação deve ser feita por um administrador do banco, atualizando `public.profiles.active` e, quando necessário, `public.profiles.role`.
+
+Não publique a versão com Supabase Auth antes de concluir as etapas 1 e 2, pois as credenciais antigas foram removidas por segurança.
+
+## Cloudflare Pages
+
+Configure o projeto conectado ao GitHub com:
+
+- comando de build: `npm run build`;
+- diretório de saída: `dist`;
+- Node.js: 20 ou superior;
+- variáveis: `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` (ou a variável legada `VITE_SUPABASE_KEY`).
+
+O projeto já contém `_redirects` e `_routes.json` para o roteamento da SPA.

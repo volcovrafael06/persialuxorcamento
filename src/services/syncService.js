@@ -1,80 +1,52 @@
 import { supabase } from '../supabase/client';
 import { localDB } from './localDatabase';
 
+const fetchTable = async (table, queryBuilder = query => query.select('*')) => {
+  const { data, error } = await queryBuilder(supabase.from(table));
+  if (error) throw new Error(`Falha ao sincronizar ${table}: ${error.message}`);
+  return data || [];
+};
+
 export const syncService = {
   async syncAll() {
-    try {
-      // Sincronizar orçamentos
-      const { data: orcamentos, error: orcamentosError } = await supabase
-        .from('orcamentos')
-        .select(`
-          *,
-          clientes (
-            id,
-            name,
-            email,
-            phone,
-            address
-          )
-        `);
-      if (orcamentosError) throw orcamentosError;
-      await localDB.bulkPut('orcamentos', orcamentos);
+    const [orcamentos, clientes, produtos, accessories, configuracoes, visits] = await Promise.all([
+      fetchTable('orcamentos', query => query.select(`
+        *,
+        clientes (id, name, email, phone, address),
+        vendedores (id, nome, email)
+      `)),
+      fetchTable('clientes'),
+      fetchTable('produtos'),
+      fetchTable('accessories'),
+      fetchTable('configuracoes'),
+      fetchTable('visits', query => query.select('*').order('date_time', { ascending: true }))
+    ]);
 
-      // Sincronizar clientes
-      const { data: clientes, error: clientesError } = await supabase
-        .from('clientes')
-        .select('*');
-      if (clientesError) throw clientesError;
-      await localDB.bulkPut('clientes', clientes);
+    await Promise.all([
+      localDB.replaceAll('orcamentos', orcamentos),
+      localDB.replaceAll('clientes', clientes),
+      localDB.replaceAll('produtos', produtos),
+      localDB.replaceAll('accessories', accessories),
+      localDB.replaceAll('configuracoes', configuracoes),
+      localDB.replaceAll('visits', visits)
+    ]);
 
-      // Sincronizar produtos
-      const { data: produtos, error: produtosError } = await supabase
-        .from('produtos')
-        .select('*');
-      if (produtosError) throw produtosError;
-      await localDB.bulkPut('produtos', produtos);
-
-      // Sincronizar acessórios
-      const { data: accessories, error: accessoriesError } = await supabase
-        .from('accessories')
-        .select('*');
-      if (accessoriesError) throw accessoriesError;
-      await localDB.bulkPut('accessories', accessories);
-
-      // Sincronizar configurações
-      const { data: configuracoes, error: configuracoesError } = await supabase
-        .from('configuracoes')
-        .select('*')
-        .single();
-      if (configuracoesError) throw configuracoesError;
-      if (configuracoes) {
-        await localDB.put('configuracoes', configuracoes);
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Erro na sincronização:', error);
-      return false;
-    }
+    return {
+      orcamentos: orcamentos.length,
+      clientes: clientes.length,
+      produtos: produtos.length,
+      accessories: accessories.length,
+      configuracoes: configuracoes.length,
+      visits: visits.length
+    };
   },
 
   async getFromLocalOrFetch(storeName, fetchFn) {
-    try {
-      // Tentar obter do cache local primeiro
-      const localData = await localDB.getAll(storeName);
-      if (localData && localData.length > 0) {
-        return localData;
-      }
+    const localData = await localDB.getAll(storeName);
+    if (localData.length > 0) return localData;
 
-      // Se não houver dados locais, buscar do servidor
-      const data = await fetchFn();
-      if (data) {
-        await localDB.bulkPut(storeName, data);
-      }
-      return data;
-    } catch (error) {
-      console.error(`Erro ao buscar dados de ${storeName}:`, error);
-      throw error;
-    }
+    const data = await fetchFn();
+    await localDB.replaceAll(storeName, data || []);
+    return data || [];
   }
 };

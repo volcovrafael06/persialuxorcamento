@@ -8,7 +8,7 @@ function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
   
   // Helper function to check if a budget status is pending (igual à função no BudgetList)
   const isPending = (status) => {
-    return status === 'pendente' || status === 'pending' || !status || status === '' || status === null || status === undefined;
+    return status === 'pendente';
   };
   
   // Check if we have any budgets with pending status - agora usando a função isPending

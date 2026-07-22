@@ -178,7 +178,7 @@ function VisitScheduler() {
     const visitData = {
       ...newVisit,
       date_time: new Date(newVisit.date_time).toISOString(),
-      status: 'pending'
+      status: 'agendada'
     };
 
     try {
@@ -283,7 +283,7 @@ function VisitScheduler() {
     try {
       const { data, error } = await supabase
         .from('visits')
-        .update({ status: 'confirmed' })
+        .update({ status: 'confirmada' })
         .eq('id', visitId)
         .select();
 
@@ -315,7 +315,7 @@ function VisitScheduler() {
     try {
       const { data, error } = await supabase
         .from('visits')
-        .update({ status: 'cancelled' })
+        .update({ status: 'cancelada' })
         .eq('id', visitId)
         .select();
 
@@ -364,15 +364,15 @@ function VisitScheduler() {
   };
 
   const getVisitStatusClass = (visit) => {
-    if (visit.status === 'confirmed') return 'confirmed';
-    if (visit.status === 'cancelled') return 'cancelled';
+    if (visit.status === 'confirmada') return 'confirmed';
+    if (visit.status === 'cancelada') return 'cancelled';
     if (new Date(visit.date_time) < new Date()) return 'past';
     return 'pending';
   };
 
   const getVisitStatusText = (visit) => {
-    if (visit.status === 'confirmed') return 'Confirmada';
-    if (visit.status === 'cancelled') return 'Cancelada';
+    if (visit.status === 'confirmada') return 'Confirmada';
+    if (visit.status === 'cancelada') return 'Cancelada';
     if (new Date(visit.date_time) < new Date()) return 'Passada';
     return 'Pendente';
   };
@@ -444,8 +444,8 @@ function VisitScheduler() {
         ) : (
           visits
             .filter(visit => {
-              if (filter === 'confirmed') return visit.status === 'confirmed';
-              if (filter === 'pending') return visit.status !== 'confirmed';
+              if (filter === 'confirmed') return visit.status === 'confirmada';
+              if (filter === 'pending') return visit.status === 'agendada';
               return true; // 'all' filter
             })
             .map((visit) => (
@@ -488,7 +488,7 @@ function VisitScheduler() {
                   <i className="fas fa-edit"></i>
                   Editar
                 </button>
-                {!isVisitPast(visit) && visit.status !== 'confirmed' && visit.status !== 'cancelled' && (
+                {!isVisitPast(visit) && visit.status !== 'confirmada' && visit.status !== 'cancelada' && (
                   <button
                     className="btn btn-confirm"
                     onClick={() => handleConfirmVisit(visit.id)}
@@ -497,7 +497,7 @@ function VisitScheduler() {
                     Confirmar
                   </button>
                 )}
-                {!isVisitPast(visit) && visit.status !== 'cancelled' && (
+                {!isVisitPast(visit) && visit.status !== 'cancelada' && (
                   <button
                     className="btn btn-cancel"
                     onClick={() => handleCancelVisit(visit.id)}

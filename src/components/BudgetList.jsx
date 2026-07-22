@@ -17,8 +17,7 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
 
   // Helper function to check if a budget status is pending
   const isPending = (status) => {
-    // Check for all possible pending status variations
-    return status === 'pendente' || status === 'pending' || !status || status === '' || status === null || status === undefined;
+    return status === 'pendente';
   };
 
   // Carregar dados completos dos orçamentos com informações de clientes
@@ -108,7 +107,7 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
   // Usar os orçamentos do estado local (que têm info completa de clientes) ou os passados por props
   const budgetsToUse = localBudgets.length > 0 ? localBudgets : budgets;
 
-  const filteredBudgets = budgetsToUse
+  const filteredBudgets = [...budgetsToUse]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .filter(budget => {
       if (filter === 'monthly') {

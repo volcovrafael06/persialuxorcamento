@@ -5,6 +5,7 @@ import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import './BudgetDetailsPage.css';
 import { supabase } from '../supabase/client';
+import { buildBudgetItemGroupKey, buildCustomerPdfDescription } from '../utils/budgetPresentation';
 
 function BudgetDetailsPage({ companyLogo }) {
   const { budgetId } = useParams();
@@ -277,11 +278,11 @@ function BudgetDetailsPage({ companyLogo }) {
     const items = JSON.parse(budget.produtos_json || '[]');
     items.forEach(item => {
       const productDetails = getProductDetails(item.produto_id);
-      const desc = formatProductDisplay(productDetails, item);
-      const key = `${desc.key}|${item.ambiente || ''}`;
+      const description = buildCustomerPdfDescription(productDetails, item);
+      const key = buildBudgetItemGroupKey(productDetails, item);
       if (!groupedProducts[key]) {
         groupedProducts[key] = {
-          description: desc.key,
+          description,
           environment: item.ambiente || '-',
           quantity: 1,
           unitPrice: Number(item.valor_total || item.subtotal || 0),

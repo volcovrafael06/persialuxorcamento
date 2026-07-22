@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './Configuracoes.css';
 import { supabase } from '../supabase/client';
+import { getStoragePath, storageService } from '../services/storageService';
 
 function Configuracoes({ setCompanyLogo }) {
   const [cnpj, setCnpj] = useState('');
@@ -20,6 +21,7 @@ function Configuracoes({ setCompanyLogo }) {
   const [saveMessage, setSaveMessage] = useState('');
   const [cnpjErrorMessage, setCnpjErrorMessage] = useState('');
   const [localCompanyLogo, setLocalCompanyLogo] = useState(null);
+  const [companyLogoPath, setCompanyLogoPath] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [bandoCusto, setBandoCusto] = useState(80);
@@ -63,8 +65,10 @@ function Configuracoes({ setCompanyLogo }) {
         setFormulaComprimento(data.formula_comprimento || '');
         setFormulaBando(data.formula_bando || '');
         setFormulaInstalacao(data.formula_instalacao || '');
-        setLocalCompanyLogo(data.company_logo || null);
-        setCompanyLogo(data.company_logo || null);
+        setCompanyLogoPath(getStoragePath(data.company_logo));
+        const logoUrl = await storageService.getLogoUrl(data.company_logo);
+        setLocalCompanyLogo(logoUrl);
+        setCompanyLogo(logoUrl);
         setBandoCusto(data.bando_custo || 80);
         setBandoVenda(data.bando_venda || 120);
       }
@@ -213,14 +217,20 @@ function Configuracoes({ setCompanyLogo }) {
       setLoading(true);
 
       // Create a unique file name
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split('.').pop().toLowerCase();
+      if (!['png', 'jpg', 'jpeg', 'webp'].includes(fileExt)) {
+        throw new Error('Formato não permitido. Use PNG, JPG ou WEBP.');
+      }
       const fileName = `logo_${Date.now()}.${fileExt}`;
+      const logoPath = `logos/${fileName}`;
 
       // Upload the file to Supabase Storage
-      const { data, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('images')
-        .upload(`logos/${fileName}`, file, {
-          cacheControl: '3600'
+        .upload(logoPath, file, {
+          cacheControl: '3600',
+          contentType: file.type,
+          upsert: false
         });
 
       if (uploadError) {
@@ -228,14 +238,12 @@ function Configuracoes({ setCompanyLogo }) {
         throw new Error('Erro ao fazer upload do arquivo: ' + uploadError.message);
       }
 
-      // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('images')
-        .getPublicUrl(`logos/${fileName}`);
+      const logoUrl = await storageService.getLogoUrl(logoPath);
 
       // Update local state and parent component
-      setLocalCompanyLogo(publicUrl);
-      setCompanyLogo(publicUrl);
+      setCompanyLogoPath(logoPath);
+      setLocalCompanyLogo(logoUrl);
+      setCompanyLogo(logoUrl);
 
       const { data: cfg } = await supabase
         .from('configuracoes')
@@ -246,13 +254,13 @@ function Configuracoes({ setCompanyLogo }) {
       if (cfg?.id) {
         const { error } = await supabase
           .from('configuracoes')
-          .update({ company_logo: publicUrl })
+          .update({ company_logo: logoPath })
           .eq('id', cfg.id);
         dbError = error;
       } else {
         const { error } = await supabase
           .from('configuracoes')
-          .insert([{ company_logo: publicUrl }]);
+          .insert([{ company_logo: logoPath }]);
         dbError = error;
       }
 
@@ -273,7 +281,7 @@ function Configuracoes({ setCompanyLogo }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    handleSave();
+    await handleSave();
   };
 
   const handleSave = async () => {
@@ -302,7 +310,7 @@ function Configuracoes({ setCompanyLogo }) {
             formula_comprimento: formulaComprimento,
             formula_bando: formulaBando,
             formula_instalacao: formulaInstalacao,
-            company_logo: localCompanyLogo,
+            company_logo: companyLogoPath,
             bando_custo: bandoCusto,
             bando_venda: bandoVenda
           })
@@ -322,7 +330,7 @@ function Configuracoes({ setCompanyLogo }) {
             formula_comprimento: formulaComprimento,
             formula_bando: formulaBando,
             formula_instalacao: formulaInstalacao,
-            company_logo: localCompanyLogo,
+            company_logo: companyLogoPath,
             bando_custo: bandoCusto,
             bando_venda: bandoVenda
           }]);
@@ -365,18 +373,11 @@ function Configuracoes({ setCompanyLogo }) {
         }
       ];
 
-      // Atualizar cada tipo de trilho
-      for (const update of railUpdates) {
-        const { error: railError } = await supabase
-          .from('rail_pricing')
-          .update({ 
-            cost_price: update.cost_price,
-            sale_price: update.sale_price
-          })
-          .eq('rail_type', update.rail_type);
+      const { error: railError } = await supabase
+        .from('rail_pricing')
+        .upsert(railUpdates, { onConflict: 'rail_type' });
 
-        if (railError) throw railError;
-      }
+      if (railError) throw railError;
 
       setSaveMessage('Configurações salvas com sucesso!');
       setTimeout(() => setSaveMessage(''), 3000);
@@ -388,67 +389,12 @@ function Configuracoes({ setCompanyLogo }) {
     }
   };
 
-  const saveRailPricing = async () => {
-    try {
-      const updates = [
-        {
-          rail_type: 'trilho_redondo_com_comando',
-          cost_price: trilhoRedondoCusto,
-          sale_price: trilhoRedondoVenda
-        },
-        {
-          rail_type: 'trilho_slim_com_comando',
-          cost_price: trilhoSlimCusto,
-          sale_price: trilhoSlimVenda
-        },
-        {
-          rail_type: 'trilho_quadrado_com_rodizio_em_gancho',
-          cost_price: trilhoQuadradoCusto,
-          sale_price: trilhoQuadradoVenda
-        },
-        {
-          rail_type: 'trilho_redondo_sem_comando',
-          cost_price: trilhoRedondoSemComandoCusto,
-          sale_price: trilhoRedondoSemComandoVenda
-        },
-        {
-          rail_type: 'trilho_slim_sem_comando',
-          cost_price: trilhoSlimSemComandoCusto,
-          sale_price: trilhoSlimSemComandoVenda
-        },
-        {
-          rail_type: 'trilho_motorizado',
-          cost_price: trilhoMotorizadoCusto,
-          sale_price: trilhoMotorizadoVenda
-        }
-      ];
-
-      for (const update of updates) {
-        const { error } = await supabase
-          .from('rail_pricing')
-          .update({ 
-            cost_price: update.cost_price,
-            sale_price: update.sale_price
-          })
-          .eq('rail_type', update.rail_type);
-
-        if (error) throw error;
-      }
-
-      setSaveMessage('Configurações salvas com sucesso!');
-      setTimeout(() => setSaveMessage(''), 3000);
-    } catch (err) {
-      setError(err.message);
-      console.error("Error saving rail pricing:", err);
-    }
-  };
-
   const handleAddSeller = async (e) => {
     e.preventDefault();
     if (!newSellerName || !newSellerEmail) return;
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('vendedores')
         .insert([
           { nome: newSellerName, email: newSellerEmail }
@@ -484,24 +430,6 @@ function Configuracoes({ setCompanyLogo }) {
       console.error("Error deleting seller:", err);
     }
   };
-
-  useEffect(() => {
-    const fetchConfig = async () => {
-      const { data, error } = await supabase
-        .from('configuracoes')
-        .select('company_logo')
-        .single();
-
-      if (error) {
-        console.error('Error fetching logo:', error);
-      } else if (data?.company_logo) {
-        setLocalCompanyLogo(data.company_logo);
-        setCompanyLogo(data.company_logo);
-      }
-    };
-
-    fetchConfig();
-  }, [setCompanyLogo]);
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error: {error}</p>;
@@ -769,13 +697,8 @@ function Configuracoes({ setCompanyLogo }) {
             Gerenciar Vendedores
           </button>
           <button
+            type="submit"
             className="save-button"
-            onClick={async () => {
-              await Promise.all([
-                handleSave(),
-                saveRailPricing()
-              ]);
-            }}
             disabled={loading || !!cnpjErrorMessage}
           >
             {loading ? 'Salvando...' : 'Salvar Configurações'}
