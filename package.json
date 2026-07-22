@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && cp -r public/*.js dist/ && cp public/_redirects dist/ && cp public/_routes.json dist/",
+    "test": "node --test tests/*.test.js",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler pages deploy dist"
   },
@@ -17,7 +18,6 @@
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
     "lodash.debounce": "^4.0.8",
-    "md5": "^2.3.0",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.3.0",
     "react-dom": "^18.2.0",
