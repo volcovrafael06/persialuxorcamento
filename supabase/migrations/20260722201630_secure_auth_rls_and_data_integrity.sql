@@ -1,7 +1,7 @@
 -- Security and data-integrity baseline for the authenticated single-company app.
--- Before enabling this migration in production, create the first Supabase Auth
--- user and promote its profile to role = 'admin', active = true after the
--- migration is applied.
+-- Before enabling this migration in production, create exactly one Supabase
+-- Auth user. The first-run bootstrap below promotes that sole account to an
+-- active administrator while the migration is applied.
 
 create schema if not exists private;
 revoke all on schema private from public, anon;
