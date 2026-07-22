@@ -1,4 +1,5 @@
 import { supabase } from '../supabase/client';
+import { shouldRefreshAuthProfile } from './authState';
 
 const mapUser = (user, profile = null) => {
   if (!user) return null;
@@ -73,19 +74,33 @@ export const authService = {
   },
 
   onAuthStateChange(callback) {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        callback(null, event);
+        return;
+      }
+
+      // Token refreshes and tab-focus events must not rebuild the application.
+      // The Supabase client already keeps the active session current.
+      if (!shouldRefreshAuthProfile(event)) return;
+
+      if (!session?.user) {
+        if (event === 'INITIAL_SESSION') callback(null, event);
+        return;
+      }
+
       window.setTimeout(async () => {
         try {
-          const currentUser = session?.user ? await loadProfile(session.user) : null;
+          const currentUser = await loadProfile(session.user);
           if (currentUser && !currentUser.active) {
             await supabase.auth.signOut();
-            callback(null);
+            callback(null, 'SIGNED_OUT');
             return;
           }
-          callback(currentUser);
+          callback(currentUser, event);
         } catch (error) {
           console.error('Erro ao carregar perfil autenticado:', error);
-          callback(null);
+          // A transient profile/network failure must not discard an open form.
         }
       }, 0);
     });

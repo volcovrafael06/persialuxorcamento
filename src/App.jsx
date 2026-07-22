@@ -16,6 +16,7 @@ import ConnectionStatus from './components/ConnectionStatus';
 import './components/ConnectionStatus.css';
 import { supabase } from './supabase/client';
 import { authService } from './services/authService';
+import { keepStableUserReference } from './services/authState';
 import { syncService } from './services/syncService';
 import { localDB } from './services/localDatabase';
 import { storageService } from './services/storageService';
@@ -43,6 +44,7 @@ function App() {
   const [notification, setNotification] = useState(null);
   const syncPromiseRef = useRef(null);
   const navigate = useNavigate();
+  const loggedInUserId = loggedInUser?.id;
 
   const applyCachedData = useCallback(async () => {
     const [
@@ -118,7 +120,9 @@ function App() {
 
     authService.getCurrentUser()
       .then(user => {
-        if (active) setLoggedInUser(user);
+        if (active) {
+          setLoggedInUser(currentUser => keepStableUserReference(currentUser, user));
+        }
       })
       .catch(error => console.error('Erro ao restaurar sessão:', error))
       .finally(() => {
@@ -127,7 +131,7 @@ function App() {
 
     const subscription = authService.onAuthStateChange(user => {
       if (active) {
-        setLoggedInUser(user);
+        setLoggedInUser(currentUser => keepStableUserReference(currentUser, user));
         setAuthReady(true);
       }
     });
@@ -172,7 +176,7 @@ function App() {
       active = false;
       window.clearInterval(intervalId);
     };
-  }, [applyCachedData, fetchVisits, loggedInUser, syncData]);
+  }, [applyCachedData, fetchVisits, loggedInUserId, syncData]);
 
   useEffect(() => {
     if (!loggedInUser) return undefined;
@@ -192,7 +196,7 @@ function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loggedInUser, syncData]);
+  }, [loggedInUserId, syncData]);
 
   useEffect(() => {
     if (!loggedInUser) return undefined;
@@ -213,7 +217,7 @@ function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [fetchVisits, loggedInUser, syncData]);
+  }, [fetchVisits, loggedInUserId, syncData]);
 
   useEffect(() => {
     if (!notification) return undefined;
