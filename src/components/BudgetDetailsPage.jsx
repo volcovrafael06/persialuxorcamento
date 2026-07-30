@@ -275,14 +275,7 @@ function BudgetDetailsPage({ companyLogo }) {
   const buildPdfRows = () => {
     const rows = [];
     const groupedProducts = {};
-    let items = [];
-    try {
-      items = JSON.parse(budget.produtos_json || '[]');
-      if (!Array.isArray(items)) items = [];
-    } catch (e) {
-      console.error('produtos_json corrompido:', e);
-      items = [];
-    }
+    const items = safeParseArray(budget.produtos_json);
     items.forEach(item => {
       const productDetails = getProductDetails(item.produto_id);
       const description = buildCustomerPdfDescription(productDetails, item);
@@ -311,13 +304,7 @@ function BudgetDetailsPage({ companyLogo }) {
       ]);
     });
 
-    let acc = [];
-    try {
-      acc = JSON.parse(budget.acessorios_json || '[]');
-      if (!Array.isArray(acc)) acc = [];
-    } catch (e) {
-      acc = [];
-    }
+    const acc = safeParseArray(budget.acessorios_json);
     if (acc && acc.length > 0) {
       const groupedAccessories = {};
       acc.forEach(item => {
@@ -485,10 +472,7 @@ function BudgetDetailsPage({ companyLogo }) {
       }
 
       // Payment Conditions (multiple or single)
-      let conditions = [];
-      try {
-        conditions = budget.payment_conditions ? JSON.parse(budget.payment_conditions) : [];
-      } catch {}
+      const conditions = safeParseArray(budget.payment_conditions);
       if (Array.isArray(conditions) && conditions.length > 0) {
         conditions.forEach(pc => {
           if (pc.method === 'credit_card') {
@@ -567,8 +551,15 @@ function BudgetDetailsPage({ companyLogo }) {
   if (!budget) return <div className="error">Orçamento não encontrado.</div>;
 
   const safeParseArray = (raw) => {
+    // Pode chegar como: string JSON, objeto/array nativo (PostgREST parseia
+    // JSONB automaticamente), null/undefined ou outro tipo. Retorna array
+    // sempre que possível, [] em fallback.
+    if (raw == null) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'object') return [];
+    if (typeof raw !== 'string') return [];
     try {
-      const parsed = JSON.parse(raw || '[]');
+      const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       console.error('JSON.parse falhou:', e);
@@ -745,10 +736,7 @@ function BudgetDetailsPage({ companyLogo }) {
                 </tr>
               )}
               {(() => {
-                let conditions = [];
-                try {
-                  conditions = budget.payment_conditions ? JSON.parse(budget.payment_conditions) : [];
-                } catch {}
+                const conditions = safeParseArray(budget.payment_conditions);
                 if (Array.isArray(conditions) && conditions.length > 0) {
                   return conditions.map((pc, i) => (
                     <tr key={`pc-${i}`}>
