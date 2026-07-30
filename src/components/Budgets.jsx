@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import SelectOrCreate from './SelectOrCreate';
 import { supabase } from '../supabase/client';
+import { localDB } from '../services/localDatabase';
 import './Budgets.css';
 
 function Budgets({ budgets, setBudgets, customers: initialCustomers, products: initialProducts, accessories: initialAccessories, setCustomers: updateParentCustomers }) {
@@ -132,27 +133,31 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
     const loadInitialData = async () => {
       try {
         setLoading(true);
-        const [customersResponse, productsResponse, accessoriesResponse] = await Promise.all([
-          !initialCustomers && supabase.from('clientes').select('*').order('name'),
-          !initialProducts && supabase.from('produtos').select('*'),
-          !initialAccessories && supabase.from('accessories').select('*').order('name')
-        ]);
 
-        if (customersResponse && customersResponse.error) throw customersResponse.error;
-        if (productsResponse && productsResponse.error) throw productsResponse.error;
-        if (accessoriesResponse && accessoriesResponse.error) throw accessoriesResponse.error;
+        // Clientes: usa prop se vier, senão lê do cache local (nunca SELECT direto
+        // pois RLS retorna 42501 sem JWT ativo no momento do mount).
+        if (initialCustomers && initialCustomers.length > 0) {
+          setLocalCustomers(initialCustomers);
+        } else {
+          const cached = await localDB.getAll('clientes');
+          if (cached.length > 0) setLocalCustomers(cached);
+        }
 
-        if (customersResponse) {
-          setLocalCustomers(customersResponse.data || []);
-          updateParentCustomers?.(customersResponse.data || []);
+        // Produtos: idem. A prop inicial já reflete o estado global (App.jsx),
+        // que é populado por syncAll ou pelo cache local.
+        if (initialProducts && initialProducts.length > 0) {
+          setProducts(initialProducts);
+        } else {
+          const cached = await localDB.getAll('produtos');
+          if (cached.length > 0) setProducts(cached);
         }
-        
-        if (productsResponse) {
-          setProducts(productsResponse.data || []);
-        }
-        
-        if (accessoriesResponse) {
-          setAccessoriesList(accessoriesResponse.data || []);
+
+        // Acessórios: idem.
+        if (initialAccessories && initialAccessories.length > 0) {
+          setAccessoriesList(initialAccessories);
+        } else {
+          const cached = await localDB.getAll('accessories');
+          if (cached.length > 0) setAccessoriesList(cached);
         }
       } catch (error) {
         console.error('Error loading initial data:', error);
@@ -166,35 +171,9 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
   }, [initialCustomers, initialProducts, initialAccessories, updateParentCustomers]);
 
   useEffect(() => {
-    const fetchLatestProducts = async () => {
-      try {
-        const { data, error } = await supabase.from('produtos').select('*');
-        if (error) throw error;
-        setProducts(data || []);
-      } catch (error) {
-        console.error('Error fetching latest products:', error);
-      }
-    };
-
-    const productsSubscription = supabase
-      .channel('produtos_changes')
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'produtos' 
-        }, 
-        () => {
-          fetchLatestProducts();
-        }
-      )
-      .subscribe();
-
-    fetchLatestProducts();
-
-    return () => {
-      productsSubscription.unsubscribe();
-    };
+    // Sem subscription realtime: dependemos do syncService.syncAll disparado
+    // pelo App.jsx, que atualiza o estado global e propaga via props.
+    // SELECT direto aqui retornaria 42501 quando o RLS estiver ativo sem JWT.
   }, []);
 
   useEffect(() => {
