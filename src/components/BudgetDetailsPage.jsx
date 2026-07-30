@@ -275,7 +275,14 @@ function BudgetDetailsPage({ companyLogo }) {
   const buildPdfRows = () => {
     const rows = [];
     const groupedProducts = {};
-    const items = JSON.parse(budget.produtos_json || '[]');
+    let items = [];
+    try {
+      items = JSON.parse(budget.produtos_json || '[]');
+      if (!Array.isArray(items)) items = [];
+    } catch (e) {
+      console.error('produtos_json corrompido:', e);
+      items = [];
+    }
     items.forEach(item => {
       const productDetails = getProductDetails(item.produto_id);
       const description = buildCustomerPdfDescription(productDetails, item);
@@ -304,7 +311,13 @@ function BudgetDetailsPage({ companyLogo }) {
       ]);
     });
 
-    const acc = JSON.parse(budget.acessorios_json || '[]');
+    let acc = [];
+    try {
+      acc = JSON.parse(budget.acessorios_json || '[]');
+      if (!Array.isArray(acc)) acc = [];
+    } catch (e) {
+      acc = [];
+    }
     if (acc && acc.length > 0) {
       const groupedAccessories = {};
       acc.forEach(item => {
@@ -368,6 +381,22 @@ function BudgetDetailsPage({ companyLogo }) {
     const installments = parseInt(pc.installments) || 1;
     const increasedTotal = total * (1 + rate / 100);
     return installments > 0 ? increasedTotal / installments : 0;
+  };
+
+  // Wrappers sem "FromCondition" para chamadas sem `pc` específico
+  // (usadas em fluxos de pagamento direto sem payment_conditions array).
+  const calculateInstallmentValue = (budgetData) => {
+    const total = Number(budgetData?.valor_negociado) || Number(budgetData?.valor_total) || 0;
+    const rate = parseFloat(budgetData?.payment_tax_rate) || 0;
+    const installments = parseInt(budgetData?.payment_installments) || 1;
+    const increasedTotal = total * (1 + rate / 100);
+    return installments > 0 ? increasedTotal / installments : 0;
+  };
+
+  const calculateDiscountValue = (budgetData) => {
+    const total = Number(budgetData?.valor_negociado) || Number(budgetData?.valor_total) || 0;
+    const discountRate = parseFloat(budgetData?.payment_discount_rate) || 0;
+    return total * (1 - discountRate / 100);
   };
   const calculateDiscountValueFromCondition = (budgetData, pc) => {
     const total = Number(budgetData.valor_negociado) || Number(budgetData.valor_total) || 0;
@@ -537,8 +566,18 @@ function BudgetDetailsPage({ companyLogo }) {
   if (error) return <div className="error">{error}</div>;
   if (!budget) return <div className="error">Orçamento não encontrado.</div>;
 
-  const budgetProducts = JSON.parse(budget.produtos_json || '[]');
-  const budgetAccessories = JSON.parse(budget.acessorios_json || '[]');
+  const safeParseArray = (raw) => {
+    try {
+      const parsed = JSON.parse(raw || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('JSON.parse falhou:', e);
+      return [];
+    }
+  };
+
+  const budgetProducts = safeParseArray(budget.produtos_json);
+  const budgetAccessories = safeParseArray(budget.acessorios_json);
 
   const renderCustomerInfo = () => {
     if (!budget || !budget.clientes) {

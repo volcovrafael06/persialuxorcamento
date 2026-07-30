@@ -349,59 +349,55 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
   const calculateDimensions = (product, width, height, isPainel = false) => {
     const inputWidth = parseFloat(width) || 0;
     const inputHeight = parseFloat(height) || 0;
-    
+
     let minWidth = parseFloat(product.largura_minima) || 0;
     let minHeight = parseFloat(product.altura_minima) || 0;
     let minArea = parseFloat(product.area_minima) || 0;
-    
-    // Special case for SCREEN 0,5 PREMIUM - ensure it has the correct minimum area
-    if (product.nome === 'SCREEN 0,5 PREMIUM' || product.nome === 'SCREEN 0.5 PREMIUM' || product.nome === 'PARIS BK') {
-      minArea = 1.5;
-      
-      // Calculate minimum dimensions based on the correct minimum area
-      // If current dimensions don't provide enough area, adjust them
+
+    // Aplica area_minima genérica (não só hardcoded para 2 SKUs).
+    // Se a área digitada é menor que a mínima, ajusta dimensões respeitando
+    // a proporção (ou quadrado quando a proporção é ~1:1).
+    if (minArea > 0) {
       const currentArea = inputWidth * inputHeight;
-      if (currentArea < minArea) {
-        // If the dimensions are square (or nearly square), adjust both proportionally
+      if (currentArea > 0 && currentArea < minArea) {
         if (Math.abs(inputWidth - inputHeight) < 0.1) {
-          const sideDimension = Math.sqrt(minArea);
-          minWidth = sideDimension;
-          minHeight = sideDimension;
-        } 
-        // Otherwise, maintain aspect ratio but scale up to reach minimum area
-        else {
+          const side = Math.sqrt(minArea);
+          minWidth = side;
+          minHeight = side;
+        } else if (inputHeight > 0) {
           const ratio = inputWidth / inputHeight;
-          minHeight = Math.sqrt(minArea / ratio);
-          minWidth = minHeight * ratio;
+          const newHeight = Math.sqrt(minArea / ratio);
+          const newWidth = newHeight * ratio;
+          minWidth = newWidth;
+          minHeight = newHeight;
+        } else {
+          // altura zero mas largura > 0: assume altura = largura (quadrado)
+          minWidth = Math.sqrt(minArea);
+          minHeight = minWidth;
         }
       }
-      
-      console.log('Fixed minimum area for SCREEN 0,5 PREMIUM to 1.5m² with dimensions', minWidth.toFixed(2), 'x', minHeight.toFixed(2));
     }
-    
-    // For display purposes, we'll keep the original input dimensions
-    // For pricing calculations, we'll use the minimum dimensions if necessary
+
+    // Para exibição, mantemos inputWidth/inputHeight.
+    // Para pricing, usamos o piso mínimo quando necessário.
     let finalWidth = Math.max(inputWidth, minWidth);
     let finalHeight = Math.max(inputHeight, minHeight);
-    
+
     const area = inputWidth * inputHeight;
-    const isUsingMinimum = finalWidth > inputWidth || finalHeight > inputHeight || (minArea > 0 && area < minArea);
-    
-    // Calculate the final area for pricing purposes
+    const isUsingMinimum = finalWidth > inputWidth || finalHeight > inputHeight;
+
+    // Calcula área final para pricing.
     let finalArea = finalWidth * finalHeight;
-    
     if (minArea > 0 && area < minArea) {
-      // Use the exact minimum area value directly for pricing
       finalArea = minArea;
     }
-    
-    // Apply 10% increase to area if Painel is selected
+
+    // Aplica 10% de acréscimo por Painel.
     if (isPainel) {
-      finalArea = finalArea * 1.1; // 10% increase
+      finalArea = finalArea * 1.1;
     }
-    
+
     return {
-      // Return both the pricing dimensions and the input dimensions
       width: finalWidth,
       height: finalHeight,
       area: finalArea,
@@ -518,13 +514,26 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       const parsedWidth = parseFloat(width) || 0;
       const parsedHeight = parseFloat(height) || 0;
 
-      if (method === 'linear') {
+      if (method === 'linear' || method === 'ml') {
+        // 'linear' e 'ml' são a mesma coisa: preço por metro linear (largura).
         const widthForCalc = product.painel ? parsedWidth * 1.1 : parsedWidth;
         subtotal = widthForCalc * price;
+      } else if (method === 'altura') {
+        // Wave: preço varia conforme a altura em tiers (calculado antes neste if).
+        // Se chegou aqui, basePrice pode estar 0 (nenhum tier casou).
+        if (basePrice === 0) {
+          subtotal = parsedWidth * price;
+        } else {
+          subtotal = parsedWidth * basePrice;
+        }
       } else {
+        // m² (default): área × preço. area já considera area_minima.
         if (parsedWidth && parsedHeight) {
-          // Use the area that already includes the 10% increase if Painel is selected
           subtotal = area * price;
+        } else if (parsedWidth) {
+          // Fallback quando altura é 0/NULL: usa largura × preço por metro
+          // linear como aproximação segura (não zera subtotal silenciosamente).
+          subtotal = parsedWidth * price;
         }
       }
     }
