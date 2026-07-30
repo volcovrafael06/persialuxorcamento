@@ -84,9 +84,10 @@ function Products() {
 
   const loadProducts = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await produtoService.getAll();
-      const formattedData = data.map(item => ({
+      const formattedData = (data || []).map(item => ({
         id: item.id,
         product: item.produto,
         model: item.modelo,
@@ -106,6 +107,7 @@ function Products() {
       setProducts(formattedData);
     } catch (err) {
       setError('Erro ao carregar produtos: ' + err.message);
+      setProducts([]);
     } finally {
       setLoading(false);
     }

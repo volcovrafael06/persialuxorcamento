@@ -776,3 +776,24 @@ body {
 .notification.hide {
   animation: slideOut 0.3s ease forwards;
 }
+
+/* ProductSelector dropdowns */
+.product-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 480px;
+}
+.product-selector input.product-search,
+.product-selector select.product-dropdown,
+.product-selector select.color-dropdown {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  font-size: 0.95rem;
+  background: var(--bg-light);
+  color: var(--text-color);
+}
+.product-selector select.color-dropdown {
+  margin-top: 0.25rem;
+}
