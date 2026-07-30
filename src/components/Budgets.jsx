@@ -1122,6 +1122,18 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
       const cleanProducts = newBudget.products.map(product => ({
         produto_id: product.product.id,
+        // Preserva o snapshot do produto para que o PDF/impressão consigam
+        // exibir nome/modelo/tecido/código mesmo se a busca por id falhar
+        // (RLS bloqueando, cache desatualizado, etc.). Esses campos também
+        // aparecem em orçamento reemitido muito depois do cadastro.
+        produto: {
+          id: product.product.id,
+          nome: product.product.nome,
+          modelo: product.product.modelo,
+          tecido: product.product.tecido,
+          codigo: product.product.codigo,
+          metodo_calculo: product.product.metodo_calculo
+        },
         largura: parseFloat(product.width),
         altura: product.height ? parseFloat(product.height) : null,
         input_width: parseFloat(product.inputWidth) || parseFloat(product.width),
