@@ -3,7 +3,7 @@ import { produtoService } from '../services/produtoService';
 import { supabase } from '../supabase/client';
 import './Products.css';
 
-function Products() {
+function Products({ products: externalProducts, setProducts: setExternalProducts }) {
   const initialProductState = {
     product: '',
     model: '',
@@ -20,7 +20,7 @@ function Products() {
     area_minima: '',
   };
 
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(externalProducts || []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -33,6 +33,21 @@ function Products() {
   const [showOptionModal, setShowOptionModal] = useState(false);
   const [optionType, setOptionType] = useState(null);
   const [optionInput, setOptionInput] = useState('');
+
+  // Mantém o estado local em sincronia com o estado global (App.jsx).
+  // Quando o App sincroniza do Supabase/IndexedDB e propaga via props, atualizamos aqui.
+  useEffect(() => {
+    if (externalProducts && externalProducts !== products) {
+      setProducts(externalProducts);
+    }
+  }, [externalProducts]);
+
+  const updateProducts = (next) => {
+    setProducts(next);
+    if (typeof setExternalProducts === 'function') {
+      setExternalProducts(next);
+    }
+  };
 
   const [wavePricing, setWavePricing] = useState({
     wave_pricing: [
@@ -105,9 +120,15 @@ function Products() {
         wave_pricing: item.wave_pricing_data ? JSON.parse(item.wave_pricing_data) : initialProductState.wave_pricing
       }));
       setProducts(formattedData);
+      if (typeof setExternalProducts === 'function') {
+        setExternalProducts(formattedData);
+      }
     } catch (err) {
       setError('Erro ao carregar produtos: ' + err.message);
       setProducts([]);
+      if (typeof setExternalProducts === 'function') {
+        setExternalProducts([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -215,13 +236,44 @@ function Products() {
         sale_price: calculateSalePrice(newProduct.cost_price, newProduct.profit_margin)
       };
 
+      let saved
       if (editingProductId) {
-        await produtoService.update(editingProductId, productData);
+        saved = await produtoService.update(editingProductId, productData);
       } else {
-        await produtoService.create(productData);
+        saved = await produtoService.create(productData);
       }
 
-      loadProducts();
+      // Atualiza o estado global (App.jsx) imediatamente com o item criado/editado,
+      // garantindo que o ProductSelector usado em /budgets/new veja o novo item
+      // sem depender de nova busca remota.
+      if (saved) {
+        const formattedSaved = {
+          id: saved.id,
+          product: saved.produto,
+          model: saved.modelo,
+          material: saved.tecido,
+          name: saved.nome,
+          code: saved.codigo,
+          cost_price: saved.preco_custo?.toString() || '0',
+          profit_margin: saved.margem_lucro?.toString() || '0',
+          sale_price: saved.preco_venda?.toString() || '0',
+          calculation_method: saved.metodo_calculo,
+          altura_minima: saved.altura_minima || '',
+          largura_minima: saved.largura_minima || '',
+          largura_maxima: saved.largura_maxima || '',
+          area_minima: saved.area_minima || '',
+          wave_pricing: saved.wave_pricing_data
+            ? JSON.parse(saved.wave_pricing_data)
+            : initialProductState.wave_pricing
+        };
+
+        const next = editingProductId
+          ? products.map((p) => (p.id === formattedSaved.id ? formattedSaved : p))
+          : [...products, formattedSaved];
+
+        updateProducts(next);
+      }
+
       setNewProduct(initialProductState);
       setEditingProductId(null);
       setShowModal(false);
@@ -298,7 +350,9 @@ function Products() {
     if (window.confirm('Confirma a exclusão deste produto?')) {
       try {
         await produtoService.delete(id);
-        loadProducts();
+        // Atualiza imediatamente o estado global para refletir a exclusão
+        // no ProductSelector usado em /budgets/new.
+        updateProducts(products.filter((p) => p.id !== id));
       } catch (error) {
         setError('Erro ao excluir produto: ' + error.message);
       }
