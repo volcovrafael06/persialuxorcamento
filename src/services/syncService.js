@@ -1,25 +1,38 @@
 import { supabase } from '../supabase/client';
 import { localDB } from './localDatabase';
 
-const fetchTable = async (table, queryBuilder = query => query.select('*')) => {
-  const { data, error } = await queryBuilder(supabase.from(table));
-  if (error) throw new Error(`Falha ao sincronizar ${table}: ${error.message}`);
-  return data || [];
+const PAGE_SIZE = 1000;
+
+const fetchAllRows = async (table, queryBuilder = query => query.select('*')) => {
+  // PostgREST trunca em 1000 rows por padrão. Paginamos manualmente
+  // para que syncService traga TODOS os registros.
+  const rows = [];
+  let offset = 0;
+  while (true) {
+    const builder = queryBuilder(supabase.from(table));
+    const { data, error } = await builder.range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw new Error(`Falha ao sincronizar ${table}: ${error.message}`);
+    const chunk = data || [];
+    rows.push(...chunk);
+    if (chunk.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return rows;
 };
 
 export const syncService = {
   async syncAll() {
     const [orcamentos, clientes, produtos, accessories, configuracoes, visits] = await Promise.all([
-      fetchTable('orcamentos', query => query.select(`
+      fetchAllRows('orcamentos', query => query.select(`
         *,
         clientes (id, name, email, phone, address),
         vendedores (id, nome, email)
       `)),
-      fetchTable('clientes'),
-      fetchTable('produtos'),
-      fetchTable('accessories'),
-      fetchTable('configuracoes'),
-      fetchTable('visits', query => query.select('*').order('date_time', { ascending: true }))
+      fetchAllRows('clientes'),
+      fetchAllRows('produtos', query => query.select('*').order('codigo', { ascending: true })),
+      fetchAllRows('accessories', query => query.select('*').order('name', { ascending: true })),
+      fetchAllRows('configuracoes'),
+      fetchAllRows('visits', query => query.select('*').order('date_time', { ascending: true }))
     ]);
 
     await Promise.all([
