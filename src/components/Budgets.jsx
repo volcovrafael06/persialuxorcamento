@@ -52,6 +52,20 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
   const [localCustomers, setLocalCustomers] = useState([]);
   const [products, setProducts] = useState(initialProducts || []);
   const [accessoriesList, setAccessoriesList] = useState(initialAccessories || []);
+
+  // Sincroniza com o estado global (App.jsx) sempre que ele mudar.
+  // Sem isso, um cadastro novo em /products só aparece em /budgets/new após reload.
+  useEffect(() => {
+    if (initialProducts && initialProducts !== products) {
+      setProducts(initialProducts);
+    }
+  }, [initialProducts]);
+
+  useEffect(() => {
+    if (initialAccessories && initialAccessories !== accessoriesList) {
+      setAccessoriesList(initialAccessories);
+    }
+  }, [initialAccessories]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState({ customer: '', product: '', accessory: '' });
