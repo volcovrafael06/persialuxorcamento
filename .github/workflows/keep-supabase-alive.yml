@@ -1,0 +1,79 @@
+name: keep-supabase-alive
+
+on:
+  schedule:
+    # UTC 06:00 daily; cron mínimo do GitHub Actions = a cada 5 min.
+    # 06:00 UTC ≈ 03:00 BRT (sem DST) ou 02:00 BRT (com DST).
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Força execução'
+        type: boolean
+        default: false
+
+concurrency:
+  group: keep-supabase-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Ping Supabase
+        id: ping
+        env:
+          SUPABASE_URL: https://ozxpdccutroxtjqcpjea.supabase.co
+          # Chave publishable (anon). Endpoint /auth/v1/settings é público e aceita
+          # só a apikey — não há privilégios concedidos. Nunca é alterada.
+          SUPABASE_KEY: sb_publishable_78VLP54uyTLDDXsCan3N9w_G0_SqIzy
+          HEALTH_TIMEOUT_MS: '8000'
+        run: |
+          set -euo pipefail
+
+          timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          # GET /auth/v1/settings: rota pública do Supabase, requer só apikey.
+          # É o endpoint que mais seguramente conta como atividade:
+          #   - retorna HTTP 200 com config de provedores de auth
+          #   - é um request HTTP real para o plano (acorda o projeto no free tier)
+          #   - não precisa de JWT de usuário
+          # Docs: https://supabase.com/docs/reference/api/get-settings
+          http_code=$(
+            curl -sS -o /tmp/ping_body.json -w "%{http_code}" \
+              --max-time "$HEALTH_TIMEOUT_MS" \
+              -H "apikey: $SUPABASE_KEY" \
+              "$SUPABASE_URL/auth/v1/settings" \
+            || echo "000"
+          )
+
+          body_size=$(wc -c < /tmp/ping_body.json || echo 0)
+
+          echo "::group::Ping response"
+          echo "timestamp:    $timestamp"
+          echo "HTTP status:  $http_code"
+          echo "Body size:    $body_size bytes"
+          echo "Body preview: $(head -c 200 /tmp/ping_body.json)"
+          echo "::endgroup::"
+
+          # Sucesso apenas em HTTP 200 (config completa retornada).
+          case "$http_code" in
+            200) status=ok ;;
+            *)   status=fail ;;
+          esac
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          if [ "$status" = "fail" ]; then
+            echo "::error::Supabase ping falhou com HTTP $http_code"
+            exit 1
+          fi
+
+          # Sanity check: resposta deve conter bloco "mailer" (config padrão).
+          if ! grep -q '"mailer"' /tmp/ping_body.json; then
+            echo "::warning::Resposta sem 'mailer'. Endpoint mudou? Verifique."
+          fi
