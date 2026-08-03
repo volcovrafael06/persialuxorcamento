@@ -29,20 +29,38 @@ const extrairLinhaAcionamento = (modelo) => {
   return m[0] || '';
 };
 
-// Extrai a coleção do nome do produto (parte antes do " - " quando há sufixo de cor).
+// Extrai a coleção do nome, respeitando dois formatos comuns:
+// 1) "CORT ROLÔ - BK ARUBA - CREAM (281-04)" (split por " - ")
+// 2) "BK Aruba Tubo 45" / "Alberta II Single Tubo 45" (sem separador)
+// Em ambos, a coleção é o segmento que vem antes de "Tubo XX", "FIXA",
+// "CREAM", "IVORY" etc. Quando não há prefixo tecido, retorna o nome
+// completo (cada nome já é uma coleção/cor específica).
 const extrairColecaoDoNome = (nome) => {
   if (!nome) return '';
-  // Formato comum: "CORT ROLÔ - BK ARUBA - CREAM (281-04)"
-  const partes = String(nome).split(' - ').map(p => p.trim());
-  if (partes.length >= 2) return partes[1];
-  return partes[0];
+  // Formato 1: split por " - "
+  const s = String(nome);
+  if (s.includes(' - ')) {
+    const partes = s.split(' - ').map(p => p.trim());
+    return partes[1] || partes[0];
+  }
+  // Formato 2: tentar separar antes de "Tubo XX" ou "FIXA"
+  const m = s.match(/^(.+?)\s+(Tubo\s*\d+|FIXA)\b/i);
+  if (m) return m[1].trim();
+  return s;
 };
 
-// Extrai a cor (último segmento do nome).
+// Extrai a cor (último segmento ou termo antes de sufixo).
 const extrairCorDoNome = (nome) => {
   if (!nome) return '';
-  const partes = String(nome).split(' - ').map(p => p.trim());
-  return partes[partes.length - 1] || '';
+  const s = String(nome);
+  if (s.includes(' - ')) {
+    const partes = s.split(' - ').map(p => p.trim());
+    return partes[partes.length - 1] || '';
+  }
+  // Formato 2: tudo depois da coleção (que já extraímos acima)
+  const m = s.match(/^(.+?)\s+(Tubo\s*\d+|FIXA)\b/i);
+  if (m) return m[2].trim();
+  return '';
 };
 
 function ProductSelectorCascata({ onSelect }) {

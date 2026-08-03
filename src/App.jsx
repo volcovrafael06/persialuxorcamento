@@ -12,6 +12,7 @@ import Configuracoes from './components/Configuracoes';
 import BudgetDetailsPage from './components/BudgetDetailsPage';
 import HomePage from './components/HomePage';
 import VisitScheduler from './components/VisitScheduler';
+import ProductSelectorCascataTest from './pages/ProductSelectorCascataTest';
 import ConnectionStatus from './components/ConnectionStatus';
 import './components/ConnectionStatus.css';
 import { supabase } from './supabase/client';
@@ -303,6 +304,7 @@ function App() {
           <Route path="/customers" element={isAdmin ? <Customers customers={customers} setCustomers={setCustomers} /> : <div>Acesso restrito</div>} />
           <Route path="/products" element={<Products products={products} setProducts={setProducts} />} />
           <Route path="/accessories" element={<Accessories accessories={accessories} setAccessories={setAccessories} />} />
+          <Route path="/test-cascata" element={<ProductSelectorCascataTest />} />
           <Route path="/budgets" element={<BudgetStatusPage budgets={budgets} setBudgets={setBudgets} validadeOrcamento={validadeOrcamento} />} />
           <Route path="/budgets/new" element={<Budgets budgets={budgets} setBudgets={setBudgets} customers={customers} products={products} accessories={accessories} setCustomers={setCustomers} />} />
           <Route path="/budgets/:budgetId/edit" element={<Budgets budgets={budgets} setBudgets={setBudgets} customers={customers} products={products} accessories={accessories} setCustomers={setCustomers} />} />
