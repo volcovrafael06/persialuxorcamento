@@ -29,37 +29,83 @@ const extrairLinhaAcionamento = (modelo) => {
   return m[0] || '';
 };
 
-// Extrai a coleção do nome, respeitando dois formatos comuns:
-// 1) "CORT ROLÔ - BK ARUBA - CREAM (281-04)" (split por " - ")
-// 2) "BK Aruba Tubo 45" / "Alberta II Single Tubo 45" (sem separador)
-// Em ambos, a coleção é o segmento que vem antes de "Tubo XX", "FIXA",
-// "CREAM", "IVORY" etc. Quando não há prefixo tecido, retorna o nome
-// completo (cada nome já é uma coleção/cor específica).
+// Heurística para separar Coleção de Cor (sufixo após nome da coleção):
+//
+// Padrões reconhecidos (ordem importa):
+// 1) "CORT ROLÔ - BK ARUBA - CREAM (281-04)"  → split por " - "
+// 2) "BK Aruba Tubo 45"                      → "Tubo XX" como delimitador
+// 3) "BK Alpes"                               → nome = coleção, cor vazia
+// 4) "Dolly Soft Wave 5x7.5"                 → nome composto por coleção + modelo
+// 5) "BK Super Hermes Cortina"               → coleção + "Cortina" como modelo
+//
+// Lista de MODELOS reconhecidos (regex-anchored no fim do nome):
+const MODELOS_RECONHECIDOS = [
+  // Tubo XX (final da string)
+  /Tubo\s*\d+\s*$/i,
+  // Modelos de cortina no fim
+  /(?:Teto\s+(?:Bastão|Monocorrente)|Sky\s+Light|Teto\s+Bastão)\s*$/i,
+  /(?:Vertical\s+Wave|Soft\s+Wave\s+[\dx.]+|Prega\s+(?:Macho|Americana)|Franzida\s+(?:Normal|Mini|Colmeia)|Cortina(?:s)?|Translúcidas|Pvc|Blackout|Tradicional|Plissada|Sem\s+Corda|FIXA)\s*$/i,
+  // Persiana Horizontal
+  /16\/25\s*$/i
+];
+
+const encontrarModelo = (nome) => {
+  for (const regex of MODELOS_RECONHECIDOS) {
+    const m = nome.match(regex);
+    if (m) return m[0].trim();
+  }
+  return null;
+};
+
+// Extrai a coleção do nome, devolvendo a parte antes do modelo ou separador.
 const extrairColecaoDoNome = (nome) => {
   if (!nome) return '';
-  // Formato 1: split por " - "
-  const s = String(nome);
+  const s = String(nome).trim();
+  // Formato 1: split por " — " (em dash com espaços) — separa especificação da cor
+  if (s.includes(' — ')) {
+    const partes = s.split(' — ').map(p => p.trim());
+    // Heurística: coleção é o lado que contém "Espessura" / "Furo" / palavras técnicas
+    // (ex: "ALUMÍNIO 25 MM - 0,18 Espessura (Furo não aparente) — Lisa")
+    if (/Espessura|Furo/i.test(partes[0])) {
+      // Caso: "0,18 Espessura (Furo não aparente) — Lisa" → coleção é a primeira parte
+      return partes[0];
+    }
+    // Caso genérico: "BK ARUBA — CREAM" → coleção é a primeira parte
+    return partes[0];
+  }
+  // Formato 2: split por " - " (hífen simples)
   if (s.includes(' - ')) {
     const partes = s.split(' - ').map(p => p.trim());
-    return partes[1] || partes[0];
+    return partes[0];
   }
-  // Formato 2: tentar separar antes de "Tubo XX" ou "FIXA"
-  const m = s.match(/^(.+?)\s+(Tubo\s*\d+|FIXA)\b/i);
-  if (m) return m[1].trim();
+  const modelo = encontrarModelo(s);
+  if (modelo) {
+    const idx = s.lastIndexOf(modelo);
+    if (idx > 0) return s.slice(0, idx).trim();
+  }
   return s;
 };
 
-// Extrai a cor (último segmento ou termo antes de sufixo).
+// Extrai a cor (modelo no fim do nome, ou segmento após separador).
 const extrairCorDoNome = (nome) => {
   if (!nome) return '';
-  const s = String(nome);
+  const s = String(nome).trim();
+  if (s.includes(' — ')) {
+    const partes = s.split(' — ').map(p => p.trim());
+    if (/Espessura|Furo/i.test(partes[0])) {
+      return partes[1] || '';
+    }
+    return partes[1] || '';
+  }
   if (s.includes(' - ')) {
     const partes = s.split(' - ').map(p => p.trim());
-    return partes[partes.length - 1] || '';
+    return partes[1] || '';
   }
-  // Formato 2: tudo depois da coleção (que já extraímos acima)
-  const m = s.match(/^(.+?)\s+(Tubo\s*\d+|FIXA)\b/i);
-  if (m) return m[2].trim();
+  const modelo = encontrarModelo(s);
+  if (modelo) {
+    const idx = s.lastIndexOf(modelo);
+    if (idx >= 0) return s.slice(idx).trim();
+  }
   return '';
 };
 

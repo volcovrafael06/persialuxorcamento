@@ -38,28 +38,38 @@ const cacheItem = async (item) => {
 
 export const produtoService = {
   async getAll() {
-    // Tenta Supabase primeiro; se RLS/sessão bloquear, cai pro cache local.
+    // Tenta Supabase primeiro (paginado para escapar do max_rows=1000 do
+    // PostgREST). Se RLS/sessão bloquear, cai pro cache local.
     try {
-      const { data, error } = await supabase
-        .from('produtos')
-        .select('*')
-        .order('codigo', { ascending: true })
+      const PAGE = 1000;
+      const rows = [];
+      let offset = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('produtos')
+          .select('*')
+          .order('codigo', { ascending: true })
+          .range(offset, offset + PAGE - 1);
 
-      if (error) throw error
+        if (error) throw error;
+        const chunk = data || [];
+        rows.push(...chunk);
+        if (chunk.length < PAGE) break;
+        offset += PAGE;
+      }
 
-      const remote = data || []
       // Reflete o estado remoto no cache para futuras leituras offline.
-      if (remote.length > 0) {
-        try { await localDB.replaceAll(STORE, remote) } catch { /* offline ok */ }
+      if (rows.length > 0) {
+        try { await localDB.replaceAll(STORE, rows) } catch { /* offline ok */ }
       }
       // Mescla com itens criados localmente que ainda não subiram.
       const localOnly = (await localDB.getAll(STORE)).filter(
-        (l) => !remote.some((r) => r.id === l.id)
-      )
-      return [...remote, ...localOnly]
+        (l) => !rows.some((r) => r.id === l.id)
+      );
+      return [...rows, ...localOnly];
     } catch (err) {
-      console.warn('[produtoService.getAll] Supabase falhou, usando cache local:', err.message)
-      return await localDB.getAll(STORE)
+      console.warn('[produtoService.getAll] Supabase falhou, usando cache local:', err.message);
+      return await localDB.getAll(STORE);
     }
   },
 
