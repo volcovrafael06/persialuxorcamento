@@ -124,11 +124,10 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
         setExternalProducts(formattedData);
       }
     } catch (err) {
+      // Não esvaziar a lista global em caso de erro — uma falha transitória do
+      // Supabase durante o reload pós-update faria todos os produtos sumirem
+      // da aba /orcamentos (que recebe `products` via prop de App.jsx).
       setError('Erro ao carregar produtos: ' + err.message);
-      setProducts([]);
-      if (typeof setExternalProducts === 'function') {
-        setExternalProducts([]);
-      }
     } finally {
       setLoading(false);
     }
