@@ -132,14 +132,14 @@ function Accessories() {
       if (editingAccessoryId) {
         const { data, error: updateError } = await supabase
           .from('accessories')
-          .upsert([accessoryData], { onConflict: 'id' })
+          .update(accessoryData)
           .eq('id', editingAccessoryId);
 
         if (updateError) throw updateError;
       } else {
         const { data, error: insertError } = await supabase
           .from('accessories')
-          .upsert([accessoryData], { onConflict: 'id' })
+          .insert([accessoryData])
           .select();
 
         if (insertError) throw insertError;

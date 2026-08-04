@@ -10,7 +10,11 @@ const formatForInsert = (produto) => {
     modelo: produto.model,
     tecido: produto.material,
     nome: produto.name,
-    codigo: produto.code,
+    // codigo tem UNIQUE constraint. Se o usuário não preencheu, gera um código
+    // único derivado de timestamp para evitar violação ao salvar produtos sem código.
+    codigo: produto.code && produto.code.trim()
+      ? produto.code.trim()
+      : `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
     preco_custo: isWave ? null : (parseFloat(produto.cost_price) || 0),
     margem_lucro: parseFloat(produto.profit_margin) || 0,
     preco_venda: parseFloat(produto.sale_price) || 0,
