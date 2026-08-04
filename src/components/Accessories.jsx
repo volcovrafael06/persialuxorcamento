@@ -135,14 +135,24 @@ function Accessories() {
           .upsert([accessoryData], { onConflict: 'id' })
           .eq('id', editingAccessoryId);
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          if (updateError.code === '23505') {
+            throw new Error('Já existe um acessório com este nome.');
+          }
+          throw updateError;
+        }
       } else {
         const { data, error: insertError } = await supabase
           .from('accessories')
           .upsert([accessoryData], { onConflict: 'id' })
           .select();
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          if (insertError.code === '23505') {
+            throw new Error('Já existe um acessório com este nome.');
+          }
+          throw insertError;
+        }
       }
       
       setNewAccessory({
