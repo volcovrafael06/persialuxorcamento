@@ -34,18 +34,62 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
   const [optionType, setOptionType] = useState(null);
   const [optionInput, setOptionInput] = useState('');
 
+  // Converte um item do formato Supabase (estado global) para o formato EN (local).
+  const toLocalFormat = (item) => ({
+    id: item.id,
+    product: item.produto,
+    model: item.modelo,
+    material: item.tecido,
+    name: item.nome,
+    code: item.codigo,
+    cost_price: item.preco_custo?.toString() || '0',
+    profit_margin: item.margem_lucro?.toString() || '0',
+    sale_price: item.preco_venda?.toString() || '0',
+    calculation_method: item.metodo_calculo,
+    altura_minima: item.altura_minima || '',
+    largura_minima: item.largura_minima || '',
+    largura_maxima: item.largura_maxima || '',
+    area_minima: item.area_minima || '',
+    wave_pricing: item.wave_pricing_data
+      ? (typeof item.wave_pricing_data === 'string'
+          ? JSON.parse(item.wave_pricing_data)
+          : item.wave_pricing_data)
+      : initialProductState.wave_pricing
+  });
+
   // Mantém o estado local em sincronia com o estado global (App.jsx).
-  // Quando o App sincroniza do Supabase/IndexedDB e propaga via props, atualizamos aqui.
+  // O estado global vem em formato Supabase; convertemos para o formato EN local.
   useEffect(() => {
     if (externalProducts && externalProducts !== products) {
-      setProducts(externalProducts);
+      setProducts(externalProducts.map(toLocalFormat));
     }
   }, [externalProducts]);
+
+  // Converte um item do formato EN (local) para o formato Supabase (global).
+  const toSupabaseFormat = (item) => ({
+    id: item.id,
+    produto: item.produto ?? item.product,
+    modelo: item.modelo ?? item.model,
+    tecido: item.tecido ?? item.material,
+    nome: item.nome ?? item.name,
+    codigo: item.codigo ?? item.code,
+    preco_custo: item.preco_custo ?? (parseFloat(item.cost_price) || 0),
+    margem_lucro: item.margem_lucro ?? (parseFloat(item.profit_margin) || 0),
+    preco_venda: item.preco_venda ?? (parseFloat(item.sale_price) || 0),
+    metodo_calculo: item.metodo_calculo ?? item.calculation_method,
+    altura_minima: item.altura_minima ?? (item.altura_minima === '' ? null : item.altura_minima),
+    largura_minima: item.largura_minima ?? (item.largura_minima === '' ? null : item.largura_minima),
+    largura_maxima: item.largura_maxima ?? (item.largura_maxima === '' ? null : item.largura_maxima),
+    area_minima: item.area_minima ?? (item.area_minima === '' ? null : item.area_minima),
+    wave_pricing_data: item.wave_pricing_data
+      ?? (item.wave_pricing ? JSON.stringify(item.wave_pricing) : null)
+  });
 
   const updateProducts = (next) => {
     setProducts(next);
     if (typeof setExternalProducts === 'function') {
-      setExternalProducts(next);
+      // Converte do formato EN local para o formato Supabase global.
+      setExternalProducts(next.map(toSupabaseFormat));
     }
   };
 
@@ -102,26 +146,13 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
     setError(null);
     try {
       const data = await produtoService.getAll();
-      const formattedData = (data || []).map(item => ({
-        id: item.id,
-        product: item.produto,
-        model: item.modelo,
-        material: item.tecido,
-        name: item.nome,
-        code: item.codigo,
-        cost_price: item.preco_custo?.toString() || '0',
-        profit_margin: item.margem_lucro?.toString() || '0',
-        sale_price: item.preco_venda?.toString() || '0',
-        calculation_method: item.metodo_calculo,
-        altura_minima: item.altura_minima || '',
-        largura_minima: item.largura_minima || '',
-        largura_maxima: item.largura_maxima || '',
-        area_minima: item.area_minima || '',
-        wave_pricing: item.wave_pricing_data ? JSON.parse(item.wave_pricing_data) : initialProductState.wave_pricing
-      }));
+      // produtoService.getAll() retorna dados crus do Supabase.
+      // Estado LOCAL deste componente: formato EN (toLocalFormat).
+      // Estado GLOBAL (App.jsx → Budgets.jsx): formato Supabase cru (data).
+      const formattedData = (data || []).map(toLocalFormat);
       setProducts(formattedData);
       if (typeof setExternalProducts === 'function') {
-        setExternalProducts(formattedData);
+        setExternalProducts(data || []);
       }
     } catch (err) {
       // Não esvaziar a lista global em caso de erro — uma falha transitória do
@@ -245,7 +276,28 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
       // Atualiza o estado global (App.jsx) imediatamente com o item criado/editado,
       // garantindo que o ProductSelector usado em /budgets/new veja o novo item
       // sem depender de nova busca remota.
+      // O array global segue o formato do Supabase (consumido por Budgets.filteredProducts),
+      // e este componente mantém uma cópia local reformatada para seu próprio uso.
       if (saved) {
+        const supabaseItem = {
+          id: saved.id,
+          produto: saved.produto,
+          modelo: saved.modelo,
+          tecido: saved.tecido,
+          nome: saved.nome,
+          codigo: saved.codigo,
+          preco_custo: saved.preco_custo,
+          margem_lucro: saved.margem_lucro,
+          preco_venda: saved.preco_venda,
+          metodo_calculo: saved.metodo_calculo,
+          altura_minima: saved.altura_minima,
+          largura_minima: saved.largura_minima,
+          largura_maxima: saved.largura_maxima,
+          area_minima: saved.area_minima,
+          wave_pricing_data: saved.wave_pricing_data
+        };
+
+        // Para o estado LOCAL deste componente, mantém o formato EN
         const formattedSaved = {
           id: saved.id,
           product: saved.produto,
@@ -262,15 +314,23 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
           largura_maxima: saved.largura_maxima || '',
           area_minima: saved.area_minima || '',
           wave_pricing: saved.wave_pricing_data
-            ? JSON.parse(saved.wave_pricing_data)
+            ? (typeof saved.wave_pricing_data === 'string'
+                ? JSON.parse(saved.wave_pricing_data)
+                : saved.wave_pricing_data)
             : initialProductState.wave_pricing
         };
 
-        const next = editingProductId
+        // Estado GLOBAL (App.jsx → Budgets.jsx) recebe formato Supabase
+        const globalNext = editingProductId
+          ? externalProducts.map((p) => (p.id === supabaseItem.id ? supabaseItem : p))
+          : [...externalProducts, supabaseItem];
+        setExternalProducts(globalNext);
+
+        // Estado LOCAL recebe formato EN deste componente
+        const localNext = editingProductId
           ? products.map((p) => (p.id === formattedSaved.id ? formattedSaved : p))
           : [...products, formattedSaved];
-
-        updateProducts(next);
+        setProducts(localNext);
       }
 
       setNewProduct(initialProductState);
