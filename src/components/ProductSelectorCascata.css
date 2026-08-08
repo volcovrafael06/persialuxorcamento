@@ -1,0 +1,226 @@
+/* ProductSelectorCascata — estilos para o seletor em cascata */
+
+.product-selector-cascata {
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1f2937;
+  max-width: 800px;
+}
+
+.product-selector-cascata section {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e5e7eb;
+}
+
+.product-selector-cascata h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  color: #111827;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.product-selector-cascata label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin: 12px 0 4px;
+}
+
+.product-selector-cascata select,
+.product-selector-cascata input[type="text"],
+.product-selector-cascata input[type="number"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  box-sizing: border-box;
+}
+
+.product-selector-cascata select:disabled,
+.product-selector-cascata input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.product-selector-cascata .aviso {
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #78350f;
+  border-radius: 4px;
+}
+
+/* Resumo do produto */
+.product-selector-cascata .resumo {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.product-selector-cascata .resumo-grid {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.product-selector-cascata .resumo-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.product-selector-cascata .preview-placeholder {
+  width: 96px;
+  height: 96px;
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  color: white;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.product-selector-cascata .codigo {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  background: #e5e7eb;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #374151;
+}
+
+.product-selector-cascata .resumo-detalhes p {
+  margin: 4px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.product-selector-cascata .resumo-detalhes strong {
+  color: #1f2937;
+  margin-right: 4px;
+}
+
+.product-selector-cascata .limites-medidas-inline {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  flex-wrap: wrap;
+}
+
+.product-selector-cascata .limites-medidas-inline span {
+  font-size: 12px;
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+/* Cores disponíveis */
+.product-selector-cascata .cores-disponiveis {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.product-selector-cascata .cores-disponiveis h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #14532d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.product-selector-cascata .cores-disponiveis ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.product-selector-cascata .cores-disponiveis li {
+  font-size: 12px;
+  background: white;
+  color: #14532d;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid #86efac;
+}
+
+/* Limite de medidas inline na primeira tela */
+.product-selector-cascata .limites-medidas {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 16px;
+}
+
+.product-selector-cascata .limites-medidas h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #1e40af;
+  text-transform: uppercase;
+}
+
+.product-selector-cascata .limites-medidas p {
+  margin: 4px 0;
+  font-size: 13px;
+  color: #1e40af;
+}
+
+/* Botões */
+.product-selector-cascata .acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.product-selector-cascata button {
+  padding: 10px 24px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.15s ease;
+}
+
+.product-selector-cascata button:disabled {
+  background: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.product-selector-cascata button:not(:disabled) {
+  background: #2563eb;
+  color: white;
+}
+
+.product-selector-cascata button:not(:disabled):hover {
+  background: #1d4ed8;
+}

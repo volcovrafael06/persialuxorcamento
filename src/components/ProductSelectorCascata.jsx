@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { produtoService } from '../services/produtoService';
+import './ProductSelectorCascata.css';
 
 const PASSO_DEFINICAO = 'definicao';
 const PASSO_CUSTOMIZACAO = 'customizacao';
@@ -179,17 +180,30 @@ function ProductSelectorCascata({ onSelect }) {
   }, [produtos, selection.linha, selection.grupo]);
 
   const coresPorColecao = useMemo(() => {
-    return [...new Set(
-      produtos
-        .filter(p =>
-          p.produto === selection.linha &&
-          p.modelo === selection.grupo &&
-          extrairColecaoDoNome(p.nome) === selection.colecao
-        )
-        .map(p => extrairCorDoNome(p.nome))
-        .filter(Boolean)
-    )].sort();
+    // Combina cores extraídas do nome (regex) com cores_disponiveis do banco
+    // (JSONB) — este último é a fonte canônica quando o import populou a coluna.
+    const extracted = produtos
+      .filter(p =>
+        p.produto === selection.linha &&
+        p.modelo === selection.grupo &&
+        extrairColecaoDoNome(p.nome) === selection.colecao
+      );
+    const fromName = extracted.map(p => extrairCorDoNome(p.nome)).filter(Boolean);
+    const fromDb = extracted
+      .flatMap(p => Array.isArray(p.cores_disponiveis) ? p.cores_disponiveis : [])
+      .filter(Boolean);
+    return [...new Set([...fromName, ...fromDb])].sort();
   }, [produtos, selection.linha, selection.grupo, selection.colecao]);
+
+  // Cores do produto selecionado (preferência: JSONB, fallback: regex).
+  const coresDoProduto = useMemo(() => {
+    if (!produtoSelecionado) return [];
+    if (Array.isArray(produtoSelecionado.cores_disponiveis) && produtoSelecionado.cores_disponiveis.length > 0) {
+      return produtoSelecionado.cores_disponiveis;
+    }
+    const cor = extrairCorDoNome(produtoSelecionado.nome);
+    return cor ? [cor] : [];
+  }, [produtoSelecionado]);
 
   const produtosFiltrados = useMemo(() => {
     return produtos.filter(p =>
@@ -322,10 +336,46 @@ function ProductSelectorCascata({ onSelect }) {
         <section>
           <div className="resumo">
             <h3>RESUMO DO PRODUTO</h3>
-            <p><strong>Produto:</strong> {produtoSelecionado?.nome}</p>
-            <p><strong>Modelo:</strong> {selection.modelo}</p>
-            <p><strong>Acionamento:</strong> {selection.acionamento} - <strong>Largura:</strong> {selection.largura} - <strong>Altura:</strong> {selection.altura} - <strong>TC:</strong> {selection.tc} - <strong>Quantidade:</strong> {selection.quantidade}</p>
+            <div className="resumo-grid">
+              {produtoSelecionado && (
+                <div className="resumo-preview" aria-hidden="true">
+                  <div className="preview-placeholder">
+                    <span>{produtoSelecionado.produto?.charAt(0) || 'P'}</span>
+                  </div>
+                  <code className="codigo">{produtoSelecionado.codigo}</code>
+                </div>
+              )}
+              <div className="resumo-detalhes">
+                <p><strong>Produto:</strong> {produtoSelecionado?.nome}</p>
+                <p><strong>Linha:</strong> {selection.linha}</p>
+                <p><strong>Coleção:</strong> {selection.colecao}</p>
+                <p><strong>Cor:</strong> {selection.cor || <em>não especificada</em>}</p>
+                <p><strong>Modelo:</strong> {selection.modelo}</p>
+                <p><strong>Acionamento:</strong> {selection.acionamento}</p>
+                <p>
+                  <strong>Medidas:</strong> {selection.largura}m × {selection.altura}m
+                  {' · '}<strong>TC:</strong> {selection.tc || '—'}
+                  {' · '}<strong>Qtd:</strong> {selection.quantidade}
+                </p>
+              </div>
+            </div>
+            {produtoSelecionado && (
+              <div className="limites-medidas-inline">
+                <span>Larg. Máx.: {produtoSelecionado.largura_maxima ?? 'N/A'}</span>
+                <span>Alt. Máx.: {produtoSelecionado.altura_minima ?? 'N/A'}</span>
+                <span>Área Mín.: {produtoSelecionado.area_minima ?? 'N/A'} m²</span>
+              </div>
+            )}
           </div>
+
+          {coresDoProduto.length > 0 && (
+            <div className="cores-disponiveis">
+              <h4>Cores disponíveis para este produto</h4>
+              <ul>
+                {coresDoProduto.map(c => <li key={c}>{c}</li>)}
+              </ul>
+            </div>
+          )}
 
           <h3>CUSTOMIZAÇÃO</h3>
           <p className="aviso">Os campos opcionais devem ser preenchidos sequencialmente, de cima para baixo, em razão de sua interdependência.</p>
