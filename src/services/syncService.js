@@ -22,7 +22,7 @@ const fetchAllRows = async (table, queryBuilder = query => query.select('*')) =>
 
 export const syncService = {
   async syncAll() {
-    const [orcamentos, clientes, produtos, accessories, configuracoes, visits] = await Promise.all([
+    const [orcamentos, clientes, produtos, produtosAcessorios, accessories, configuracoes, visits] = await Promise.all([
       fetchAllRows('orcamentos', query => query.select(`
         *,
         clientes (id, name, email, phone, address),
@@ -30,6 +30,7 @@ export const syncService = {
       `)),
       fetchAllRows('clientes'),
       fetchAllRows('produtos', query => query.select('*').order('codigo', { ascending: true })),
+      fetchAllRows('produtos_acessorios', query => query.select('*').order('name', { ascending: true })),
       fetchAllRows('accessories', query => query.select('*').order('name', { ascending: true })),
       fetchAllRows('configuracoes'),
       fetchAllRows('visits', query => query.select('*').order('date_time', { ascending: true }))
@@ -39,6 +40,7 @@ export const syncService = {
       localDB.replaceAll('orcamentos', orcamentos),
       localDB.replaceAll('clientes', clientes),
       localDB.replaceAll('produtos', produtos),
+      localDB.replaceAll('produtos_acessorios', produtosAcessorios),
       localDB.replaceAll('accessories', accessories),
       localDB.replaceAll('configuracoes', configuracoes),
       localDB.replaceAll('visits', visits)
@@ -48,6 +50,7 @@ export const syncService = {
       orcamentos: orcamentos.length,
       clientes: clientes.length,
       produtos: produtos.length,
+      produtosAcessorios: produtosAcessorios.length,
       accessories: accessories.length,
       configuracoes: configuracoes.length,
       visits: visits.length

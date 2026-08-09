@@ -1,8 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { produtosAcessorioService } from '../services/produtosAcessorioService';
 import { supabase } from '../supabase/client';
 import './Accessories.css';
 import { v4 as uuidv4 } from 'uuid';
 import debounce from 'lodash.debounce';
+
+// Fallback: lê da tabela legada `accessories` se a nova ainda não estiver
+// disponível no ambiente (ex: deploy em fase de transição).
+const LEGACY_TABLE = 'accessories';
 
 function Accessories() {
   const [accessories, setAccessories] = useState([]);
@@ -30,16 +35,16 @@ function Accessories() {
   const fetchAccessories = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('accessories')
-        .select('*')
-        .order('name');
-
-      if (error) {
-        throw error;
+      let data = await produtosAcessorioService.getAll();
+      // Fallback: se a nova tabela não retornou nada (ambiente não migrado),
+      // tenta a tabela legada para garantir que o usuário ainda vê os itens.
+      if (!data || data.length === 0) {
+        const { data: legacy } = await supabase
+          .from(LEGACY_TABLE)
+          .select('*')
+          .order('name');
+        data = legacy || [];
       }
-
-      console.log('Fetched accessories:', data);
       setAccessories(data || []);
     } catch (error) {
       console.error('Error fetching accessories:', error);
@@ -130,37 +135,17 @@ function Accessories() {
       };
 
       if (editingAccessoryId) {
-        const { data, error: updateError } = await supabase
-          .from('accessories')
-          .upsert([accessoryData], { onConflict: 'id' })
-          .eq('id', editingAccessoryId);
-
-        if (updateError) {
-          if (updateError.code === '23505') {
-            throw new Error('Já existe um acessório com este nome.');
-          }
-          throw updateError;
-        }
+        await produtosAcessorioService.update(editingAccessoryId, accessoryData);
       } else {
-        const { data, error: insertError } = await supabase
-          .from('accessories')
-          .upsert([accessoryData], { onConflict: 'id' })
-          .select();
-
-        if (insertError) {
-          if (insertError.code === '23505') {
-            throw new Error('Já existe um acessório com este nome.');
-          }
-          throw insertError;
-        }
+        await produtosAcessorioService.create(accessoryData);
       }
-      
+
       setNewAccessory({
         name: '',
         unit: '',
         colors: []
       });
-      
+
       fetchAccessories();
       
     } catch (error) {
@@ -178,12 +163,7 @@ function Accessories() {
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('accessories')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await produtosAcessorioService.delete(id);
       setAccessories(prev => prev.filter(acc => acc.id !== id));
     } catch (error) {
       setError('Erro ao excluir acessório: ' + error.message);

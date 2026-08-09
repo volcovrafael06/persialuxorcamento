@@ -52,6 +52,7 @@ function App() {
       localBudgets,
       localCustomers,
       localProducts,
+      localProdutosAcessorios,
       localAccessories,
       localConfigs,
       localVisits
@@ -59,6 +60,7 @@ function App() {
       localDB.getAll('orcamentos'),
       localDB.getAll('clientes'),
       localDB.getAll('produtos'),
+      localDB.getAll('produtos_acessorios'),
       localDB.getAll('accessories'),
       localDB.getAll('configuracoes'),
       localDB.getAll('visits')
@@ -67,7 +69,13 @@ function App() {
     setBudgets(localBudgets || []);
     setCustomers(localCustomers || []);
     setProducts(localProducts || []);
-    setAccessories(localAccessories || []);
+    // Prioriza a nova tabela; fallback para a legada se a nova estiver vazia
+    // (ambiente ainda não migrado).
+    setAccessories(
+      (localProdutosAcessorios && localProdutosAcessorios.length > 0)
+        ? localProdutosAcessorios
+        : (localAccessories || [])
+    );
     setVisits(localVisits || []);
 
     const localConfig = localConfigs?.[0];
