@@ -1,10 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import PreviewStandalone from './pages/PreviewStandalone';
-import './index.css';
+import OrcamentoPreview from './pages/OrcamentoPreview';
+import './components/ProductSelectorCascata.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <PreviewStandalone />
+    <OrcamentoPreview />
   </React.StrictMode>
 );

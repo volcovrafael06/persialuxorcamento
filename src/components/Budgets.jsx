@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import SelectOrCreate from './SelectOrCreate';
+import ProductSelectorCascata from './ProductSelectorCascata';
 import { supabase } from '../supabase/client';
 import { localDB } from '../services/localDatabase';
 import './Budgets.css';
@@ -1603,23 +1604,50 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
             </div>
           )}
 
-          {/* Adicionar novo produto */}
+          {/* Adicionar novo produto — seletor em cascata */}
           <div className="add-product">
             <h4>Adicionar Produto</h4>
-            <input
-              type="text"
-              placeholder="Pesquisar produto..."
-              value={searchTerm.product}
-              onChange={(e) => setSearchTerm(prev => ({ ...prev, product: e.target.value }))}
-            />
-            <SelectOrCreate
-              options={filteredProducts}
-              value={currentProduct.product}
-              labelKey="nome"
-              valueKey="id"
-              onChange={handleProductChange}
-              onCreate={fetchAccessories}
-              showCreate={false}
+            <ProductSelectorCascata
+              onSelect={(payload) => {
+                // payload: { selection, customizacao, produto }
+                // Mapear para o formato que Budgets espera em currentProduct.
+                const { selection, customizacao, produto } = payload;
+                const mapped = {
+                  product: produto,
+                  width: String(selection.largura || ''),
+                  height: String(selection.altura || ''),
+                  ambiente: selection.ambiente || '',
+                  quantity: parseInt(selection.quantidade) || 1,
+                  tc: selection.tc || '',
+                  modelo_acionamento: selection.modelo || '',
+                  acionamento: selection.acionamento || '',
+                  // Cascata preenche customização opcional
+                  corComponentes: customizacao.corComponentes || '',
+                  perfilSuperior: customizacao.perfilSuperior || '',
+                  guiaLateral: customizacao.guiaLateral || '',
+                  base: customizacao.base || '',
+                  comando: customizacao.comando || '',
+                  corrente: customizacao.corrente || '',
+                  recorte: customizacao.recorte || '',
+                  rolamentoTecido: customizacao.rolamentoTecido || '',
+                  modoInstalacao: customizacao.modoInstalacao || '',
+                  localInstalacao: customizacao.localInstalacao || '',
+                  // Defaults que vão ser sobrescritos após dimensões
+                  bando: false,
+                  bandoValue: 0,
+                  bandoCusto: 0,
+                  installation: false,
+                  installationValue: 0,
+                  trilho_tipo: '',
+                  valor_trilho: 0,
+                  painel: false,
+                  numFolhas: 1,
+                  subtotal: 0
+                };
+                handleProductChange(produto);
+                // Atualiza os campos derivados sem perder o `product` setado acima
+                setCurrentProduct(prev => ({ ...prev, ...mapped }));
+              }}
             />
 
             {currentProduct.product && (

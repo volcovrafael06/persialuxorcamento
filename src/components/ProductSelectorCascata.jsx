@@ -196,6 +196,12 @@ function ProductSelectorCascata({ onSelect }) {
   }, [produtos, selection.linha, selection.grupo, selection.colecao]);
 
   // Cores do produto selecionado (preferência: JSONB, fallback: regex).
+  const produtoSelecionado = useMemo(() => {
+    if (!selection.produtoId) return null;
+    // Coerce to string para suportar option values que vêm como string
+    return produtos.find(p => String(p.id) === String(selection.produtoId)) || null;
+  }, [produtos, selection.produtoId]);
+
   const coresDoProduto = useMemo(() => {
     if (!produtoSelecionado) return [];
     if (Array.isArray(produtoSelecionado.cores_disponiveis) && produtoSelecionado.cores_disponiveis.length > 0) {
@@ -215,11 +221,6 @@ function ProductSelectorCascata({ onSelect }) {
   }, [produtos, selection]);
 
   const acionamentos = useMemo(() => ACIONAMENTOS_POR_MODELO[selection.modelo] || ['32', '38', '45', '55'], [selection.modelo]);
-
-  const produtoSelecionado = useMemo(
-    () => produtos.find(p => p.id === selection.produtoId),
-    [produtos, selection.produtoId]
-  );
 
   // Limpa selections filhos quando o pai muda
   const handleLinhaChange = (linha) => setSelection(s => ({ ...s, linha, grupo: '', colecao: '', cor: '', produtoId: '', modelo: '', acionamento: '' }));
