@@ -1158,6 +1158,10 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         valor_trilho: product.valor_trilho,
         painel: product.painel,
         num_folhas: product.numFolhas,
+        // Customização preenchida no ProductSelectorCascata (campos opcionais).
+        customizacao: product.customizacao || null,
+        // Identifica o caminho pelo qual o item foi adicionado (cascata ou antigo)
+        origem: product.origem || 'seletor',
         subtotal: product.subtotal
       }));
 
@@ -1580,6 +1584,21 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
                       {prod.installation && <p>Instalação: R$ {prod.installationValue}</p>}
                       {prod.trilho_tipo && <p>Trilho: {prod.trilho_tipo}</p>}
                       {prod.valor_trilho && <p>Valor do Trilho: R$ {prod.valor_trilho.toFixed(2)}</p>}
+                      {prod.customizacao && Object.values(prod.customizacao).some(v => v) && (
+                        <div className="customizacao-list">
+                          <p><strong>Customização:</strong></p>
+                          {prod.customizacao.corComponentes && <p>· Cor componentes: {prod.customizacao.corComponentes}</p>}
+                          {prod.customizacao.perfilSuperior && <p>· Perfil superior: {prod.customizacao.perfilSuperior}</p>}
+                          {prod.customizacao.guiaLateral && <p>· Guia lateral: {prod.customizacao.guiaLateral}</p>}
+                          {prod.customizacao.base && <p>· Base: {prod.customizacao.base}</p>}
+                          {prod.customizacao.comando && <p>· Comando: {prod.customizacao.comando}</p>}
+                          {prod.customizacao.corrente && <p>· Corrente: {prod.customizacao.corrente}</p>}
+                          {prod.customizacao.recorte && <p>· Recorte: {prod.customizacao.recorte}</p>}
+                          {prod.customizacao.rolamentoTecido && <p>· Rolamento: {prod.customizacao.rolamentoTecido}</p>}
+                          {prod.customizacao.modoInstalacao && <p>· Modo instalação: {prod.customizacao.modoInstalacao}</p>}
+                          {prod.customizacao.localInstalacao && <p>· Local instalação: {prod.customizacao.localInstalacao}</p>}
+                        </div>
+                      )}
                       <p className="product-subtotal">Subtotal: R$ {prod.subtotal.toFixed(2)}</p>
                     </div>
                     <div className="product-actions">
@@ -1632,6 +1651,9 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
                   rolamentoTecido: customizacao.rolamentoTecido || '',
                   modoInstalacao: customizacao.modoInstalacao || '',
                   localInstalacao: customizacao.localInstalacao || '',
+                  // Persistido no produtos_json para uso em PDF / reemissão
+                  customizacao: { ...customizacao },
+                  origem: 'cascata',
                   // Defaults que vão ser sobrescritos após dimensões
                   bando: false,
                   bandoValue: 0,
