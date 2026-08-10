@@ -222,6 +222,32 @@ function ProductSelectorCascata({ onSelect }) {
 
   const acionamentos = useMemo(() => ACIONAMENTOS_POR_MODELO[selection.modelo] || ['32', '38', '45', '55'], [selection.modelo]);
 
+  // Calcula preço estimado em tempo real. Suporta m², ml e altura (Wave).
+  const precoEstimado = useMemo(() => {
+    if (!produtoSelecionado) return null;
+    const largura = parseFloat(selection.largura) || 0;
+    const altura = parseFloat(selection.altura) || 0;
+    const qty = parseInt(selection.quantidade) || 1;
+    if (largura <= 0 || altura <= 0) return null;
+    const precoVenda = parseFloat(produtoSelecionado.preco_venda) || 0;
+    if (precoVenda <= 0) return null;
+
+    const metodo = (produtoSelecionado.metodo_calculo || '').toLowerCase();
+    let base = 0;
+    if (metodo === 'ml' || metodo === 'linear') {
+      base = largura * precoVenda;
+    } else if (metodo === 'altura') {
+      base = altura * precoVenda;
+    } else {
+      // m² (default): respeita area_minima
+      const area = largura * altura;
+      const areaMin = parseFloat(produtoSelecionado.area_minima) || 0;
+      const areaEfetiva = Math.max(area, areaMin);
+      base = areaEfetiva * precoVenda;
+    }
+    return base * qty;
+  }, [produtoSelecionado, selection.largura, selection.altura, selection.quantidade]);
+
   // Limpa selections filhos quando o pai muda
   const handleLinhaChange = (linha) => setSelection(s => ({ ...s, linha, grupo: '', colecao: '', cor: '', produtoId: '', modelo: '', acionamento: '' }));
   const handleGrupoChange = (grupo) => setSelection(s => ({ ...s, grupo, colecao: '', cor: '', produtoId: '', modelo: '', acionamento: '' }));
@@ -375,6 +401,18 @@ function ProductSelectorCascata({ onSelect }) {
               <ul>
                 {coresDoProduto.map(c => <li key={c}>{c}</li>)}
               </ul>
+            </div>
+          )}
+
+          {precoEstimado !== null && (
+            <div className="preco-estimado">
+              <div className="preco-label">Preço estimado</div>
+              <div className="preco-valor">
+                R$ {precoEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div className="preco-detalhes">
+                {(produtoSelecionado.metodo_calculo || 'm²').toLowerCase()} · {produtoSelecionado.area_minima ? `Área mín. ${produtoSelecionado.area_minima}` : ''}
+              </div>
             </div>
           )}
 

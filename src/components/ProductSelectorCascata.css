@@ -168,6 +168,64 @@
   border: 1px solid #86efac;
 }
 
+/* Preço estimado em tempo real */
+.product-selector-cascata .preco-estimado {
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+  border: 2px solid #16a34a;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.product-selector-cascata .preco-label {
+  font-size: 11px;
+  color: #14532d;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.product-selector-cascata .preco-valor {
+  font-size: 32px;
+  font-weight: 700;
+  color: #15803d;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+
+.product-selector-cascata .preco-detalhes {
+  font-size: 11px;
+  color: #4b5563;
+}
+
+.product-selector-cascata .cores-disponiveis h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #14532d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.product-selector-cascata .cores-disponiveis ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.product-selector-cascata .cores-disponiveis li {
+  font-size: 12px;
+  background: white;
+  color: #14532d;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid #86efac;
+}
+
 /* Limite de medidas inline na primeira tela */
 .product-selector-cascata .limites-medidas {
   background: #eff6ff;
