@@ -1,19 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ProductSelectorCascata from '../components/ProductSelectorCascata';
 import '../components/ProductSelectorCascata.css';
-
-// Mock do produtoService para o preview
-import { produtoService } from '../services/produtoService';
-produtoService.getAll = async () => [
-  { id: 1, produto: 'PERSIANA HORIZONTAL', modelo: '16/25', nome: 'ALUMÍNIO 25 MM - 0,21 Espessura — Lisa', codigo: '01250100', largura_maxima: 3.0, area_minima: 0.5, metodo_calculo: 'm2', preco_venda: 120, preco_custo: 80, margem_lucro: 50, cores_disponiveis: ['Branco', 'Bege', 'Cinza', 'Preto'] },
-  { id: 2, produto: 'PERSIANA HORIZONTAL', modelo: '16/25', nome: 'ALUMÍNIO 25 MM - 0,18 Espessura (Furo não aparente) — Lisa', codigo: '01250110', largura_maxima: 3.0, area_minima: 0.5, metodo_calculo: 'm2', preco_venda: 140, preco_custo: 90, margem_lucro: 55, cores_disponiveis: ['Branco', 'Preto'] },
-  { id: 3, produto: 'CORTINA ROLÔ', modelo: 'Tubo 45', nome: 'BK ARUBA - CREAM (281-04)', codigo: '01100101', largura_maxima: 3.5, area_minima: 0.8, metodo_calculo: 'm2', preco_venda: 180, preco_custo: 110, margem_lucro: 63, cores_disponiveis: ['Cream', 'Linen', 'Sand'] },
-  { id: 4, produto: 'CORTINA ROLÔ', modelo: 'Tubo 32', nome: 'BK ALPES - LINEN (282-01)', codigo: '01100102', largura_maxima: 2.5, area_minima: 0.5, metodo_calculo: 'm2', preco_venda: 160, preco_custo: 100, margem_lucro: 60, cores_disponiveis: ['Linen', 'Natural'] },
-  { id: 5, produto: 'PERSIANA ROLÔ', modelo: 'Tubo 45', nome: 'BK Alpes', codigo: '01500102', largura_maxima: 3.5, area_minima: 0.8, metodo_calculo: 'm2', preco_venda: 150, preco_custo: 95, margem_lucro: 58 }
-];
+import { supabase } from '../supabase/client';
 
 function fmt(v) {
-  return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function calcSubtotal(produto, largura, altura, qty) {
@@ -33,10 +25,18 @@ function calcSubtotal(produto, largura, altura, qty) {
   return base * q;
 }
 
-function OrcamentoV2() {
-  const [cliente, setCliente] = useState('');
+function OrcamentoV2({ products, customers, accessories }) {
+  const navigate = useNavigate();
+  const [clienteId, setClienteId] = useState('');
+  const [clientes, setClientes] = useState(customers || []);
   const [itens, setItens] = useState([]);
   const [itemAtual, setItemAtual] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+  const [observacao, setObservacao] = useState('');
+
+  useEffect(() => {
+    if (customers && customers.length > 0) setClientes(customers);
+  }, [customers]);
 
   const total = useMemo(() => itens.reduce((s, i) => s + i.subtotal, 0), [itens]);
 
@@ -67,10 +67,74 @@ function OrcamentoV2() {
     setItens(prev => prev.filter(i => i.id !== id));
   };
 
+  const handleSalvar = async () => {
+    if (!clienteId) {
+      alert('Selecione um cliente antes de salvar.');
+      return;
+    }
+    if (itens.length === 0) {
+      alert('Adicione pelo menos um item ao orçamento.');
+      return;
+    }
+    setSalvando(true);
+    try {
+      const cleanProducts = itens.map(i => ({
+        produto_id: i.produto.id,
+        produto: {
+          id: i.produto.id,
+          nome: i.produto.nome,
+          modelo: i.produto.modelo,
+          tecido: i.produto.tecido,
+          codigo: i.produto.codigo,
+          metodo_calculo: i.produto.metodo_calculo
+        },
+        largura: parseFloat(i.selection.largura),
+        altura: parseFloat(i.selection.altura),
+        input_width: parseFloat(i.selection.largura),
+        input_height: parseFloat(i.selection.altura),
+        ambiente: i.selection.ambiente || '',
+        bando: false,
+        instalacao: false,
+        trilho_tipo: '',
+        painel: false,
+        num_folhas: 1,
+        customizacao: i.customizacao,
+        origem: 'cascata',
+        selection: i.selection,
+        subtotal: i.subtotal
+      }));
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('orcamentos')
+        .insert([{
+          cliente_id: clienteId,
+          vendedor_id: user?.id || null,
+          valor_total: total,
+          produtos_json: JSON.stringify(cleanProducts),
+          acessorios_json: '[]',
+          ambientes: JSON.stringify([]),
+          observacao: observacao,
+          status: 'pendente'
+        }])
+        .select()
+        .single();
+      if (error) throw error;
+      alert('Orçamento criado com sucesso!');
+      navigate(`/budgets/${data.id}/view`);
+    } catch (err) {
+      alert('Erro ao salvar: ' + (err.message || 'desconhecido'));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const clienteSelecionado = clientes.find(c => String(c.id) === String(clienteId));
+
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif' }}>
       <header style={{ background: 'white', borderBottom: '1px solid #e5e7eb', padding: '16px 24px' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 22 }}>Novo Orçamento — v2</h1>
             <p style={{ margin: '2px 0 0', fontSize: 13, color: '#6b7280' }}>
@@ -83,20 +147,27 @@ function OrcamentoV2() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 1100, margin: '0 auto', padding: 24, display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24 }}>
-        {/* Coluna principal: cascata */}
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24, display: 'grid', gridTemplateColumns: '1fr 400px', gap: 24 }}>
         <section>
           <div style={{ background: 'white', padding: 16, borderRadius: 8, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
               Cliente
             </label>
-            <input
-              type="text"
-              placeholder="Nome do cliente"
-              value={cliente}
-              onChange={e => setCliente(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }}
-            />
+            <select
+              value={clienteId}
+              onChange={e => setClienteId(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', background: 'white' }}
+            >
+              <option value="">Selecione um cliente…</option>
+              {clientes.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            {clientes.length === 0 && (
+              <p style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
+                Nenhum cliente cadastrado. Cadastre um cliente antes de continuar.
+              </p>
+            )}
           </div>
 
           <ProductSelectorCascata onSelect={handleCascataSelect} />
@@ -124,44 +195,66 @@ function OrcamentoV2() {
               </button>
             </div>
           )}
+
+          <div style={{ background: 'white', padding: 16, borderRadius: 8, marginTop: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+              Observação
+            </label>
+            <textarea
+              value={observacao}
+              onChange={e => setObservacao(e.target.value)}
+              rows={3}
+              style={{ width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', resize: 'vertical' }}
+              placeholder="Notas internas sobre o orçamento (opcional)"
+            />
+          </div>
         </section>
 
-        {/* Coluna lateral: itens + total */}
         <aside>
           <div style={{ background: 'white', borderRadius: 8, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', position: 'sticky', top: 24 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>
               Itens ({itens.length})
             </h3>
 
+            {clienteSelecionado && (
+              <div style={{ padding: 8, background: '#eff6ff', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
+                <strong>Cliente:</strong> {clienteSelecionado.name}
+              </div>
+            )}
+
             {itens.length === 0 ? (
               <p style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic', textAlign: 'center', padding: '24px 0' }}>
                 Nenhum item adicionado ainda
               </p>
             ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {itens.map(i => (
-                  <li key={i.id} style={{ padding: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {i.produto.nome}
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 400, overflowY: 'auto' }}>
+                {itens.map(i => {
+                  const customCount = Object.values(i.customizacao || {}).filter(Boolean).length;
+                  return (
+                    <li key={i.id} style={{ padding: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {i.produto.nome}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                          {i.selection.largura}m × {i.selection.altura}m · Qtd {i.selection.quantidade}
+                          {customCount > 0 && ` · ${customCount} custom.`}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                        {i.selection.largura}m × {i.selection.altura}m · Qtd {i.selection.quantidade}
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>
+                          R$ {fmt(i.subtotal)}
+                        </div>
+                        <button
+                          onClick={() => removerItem(i.id)}
+                          style={{ marginTop: 4, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                        >
+                          Remover
+                        </button>
                       </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>
-                        R$ {fmt(i.subtotal)}
-                      </div>
-                      <button
-                        onClick={() => removerItem(i.id)}
-                        style={{ marginTop: 4, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
 
@@ -171,21 +264,22 @@ function OrcamentoV2() {
                 <span style={{ color: '#15803d' }}>R$ {fmt(total)}</span>
               </div>
               <button
-                disabled={itens.length === 0}
+                onClick={handleSalvar}
+                disabled={itens.length === 0 || !clienteId || salvando}
                 style={{
                   marginTop: 12,
                   width: '100%',
                   padding: '12px 20px',
-                  background: itens.length === 0 ? '#e5e7eb' : '#2563eb',
-                  color: itens.length === 0 ? '#9ca3af' : 'white',
+                  background: (itens.length === 0 || !clienteId || salvando) ? '#e5e7eb' : '#2563eb',
+                  color: (itens.length === 0 || !clienteId || salvando) ? '#9ca3af' : 'white',
                   border: 'none',
                   borderRadius: 6,
-                  cursor: itens.length === 0 ? 'not-allowed' : 'pointer',
+                  cursor: (itens.length === 0 || !clienteId || salvando) ? 'not-allowed' : 'pointer',
                   fontWeight: 600,
                   fontSize: 14
                 }}
               >
-                Salvar orçamento
+                {salvando ? 'Salvando…' : 'Salvar orçamento'}
               </button>
             </div>
           </div>

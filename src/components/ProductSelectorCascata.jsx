@@ -157,42 +157,58 @@ function ProductSelectorCascata({ onSelect }) {
     })();
   }, []);
 
-  // Cascata derivada de produtos
-  const linhas = useMemo(() => [...new Set(produtos.map(p => p.produto).filter(Boolean))].sort(), [produtos]);
+  // Cascata derivada de produtos.
+// Usa as colunas explicitas (linha/grupo/colecao/cor) quando populadas;
+// cai pra regex do nome quando nao existem (compatibilidade retroativa).
+const getLinha = (p) => p.linha || p.produto;
+const getGrupo = (p) => p.grupo || p.modelo;
+const getColecao = (p) => {
+  if (p.colecao) return p.colecao;
+  return extrairColecaoDoNome(p.nome);
+};
+const getCor = (p) => {
+  if (p.cor) return p.cor;
+  return extrairCorDoNome(p.nome);
+};
 
-  const gruposPorLinha = useMemo(() => {
-    // Sem coluna "grupo" no schema atual. Derivamos do modelo (ex: "Tubo 45", "FIXA").
+const linhas = useMemo(() => [...new Set(produtos.map(getLinha).filter(Boolean))].sort(), [produtos]);
+
+const gruposPorLinha = useMemo(() => {
     return [...new Set(
       produtos
-        .filter(p => p.produto === selection.linha)
-        .map(p => p.modelo)
+        .filter(p => getLinha(p) === selection.linha)
+        .map(getGrupo)
         .filter(Boolean)
     )].sort();
   }, [produtos, selection.linha]);
 
-  const colecoesPorGrupo = useMemo(() => {
+const colecoesPorGrupo = useMemo(() => {
     return [...new Set(
       produtos
-        .filter(p => p.produto === selection.linha && p.modelo === selection.grupo)
-        .map(p => extrairColecaoDoNome(p.nome))
+        .filter(p =>
+          getLinha(p) === selection.linha &&
+          getGrupo(p) === selection.grupo
+        )
+        .map(getColecao)
         .filter(Boolean)
     )].sort();
   }, [produtos, selection.linha, selection.grupo]);
 
   const coresPorColecao = useMemo(() => {
     // Combina cores extraídas do nome (regex) com cores_disponiveis do banco
-    // (JSONB) — este último é a fonte canônica quando o import populou a coluna.
+    // (JSONB) e da coluna explicita `cor`. A coluna explicita tem prioridade.
     const extracted = produtos
       .filter(p =>
-        p.produto === selection.linha &&
-        p.modelo === selection.grupo &&
-        extrairColecaoDoNome(p.nome) === selection.colecao
+        getLinha(p) === selection.linha &&
+        getGrupo(p) === selection.grupo &&
+        getColecao(p) === selection.colecao
       );
+    const fromColuna = extracted.map(p => p.cor).filter(Boolean);
     const fromName = extracted.map(p => extrairCorDoNome(p.nome)).filter(Boolean);
     const fromDb = extracted
       .flatMap(p => Array.isArray(p.cores_disponiveis) ? p.cores_disponiveis : [])
       .filter(Boolean);
-    return [...new Set([...fromName, ...fromDb])].sort();
+    return [...new Set([...fromColuna, ...fromName, ...fromDb])].sort();
   }, [produtos, selection.linha, selection.grupo, selection.colecao]);
 
   // Cores do produto selecionado (preferência: JSONB, fallback: regex).
@@ -213,10 +229,10 @@ function ProductSelectorCascata({ onSelect }) {
 
   const produtosFiltrados = useMemo(() => {
     return produtos.filter(p =>
-      p.produto === selection.linha &&
-      p.modelo === selection.grupo &&
-      extrairColecaoDoNome(p.nome) === selection.colecao &&
-      extrairCorDoNome(p.nome) === selection.cor
+      getLinha(p) === selection.linha &&
+      getGrupo(p) === selection.grupo &&
+      getColecao(p) === selection.colecao &&
+      getCor(p) === selection.cor
     );
   }, [produtos, selection]);
 

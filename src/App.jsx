@@ -13,6 +13,7 @@ import BudgetDetailsPage from './components/BudgetDetailsPage';
 import HomePage from './components/HomePage';
 import VisitScheduler from './components/VisitScheduler';
 import ProductSelectorCascataTest from './pages/ProductSelectorCascataTest';
+import OrcamentoV2 from './pages/OrcamentoV2';
 import ConnectionStatus from './components/ConnectionStatus';
 import './components/ConnectionStatus.css';
 import { supabase } from './supabase/client';
@@ -296,6 +297,7 @@ function App() {
             <li className="nav-item"><NavLink to="/products" className="nav-link"><span className="icon">📦</span><span className="text">Produtos</span></NavLink></li>
             <li className="nav-item"><NavLink to="/accessories" className="nav-link"><span className="icon">🔧</span><span className="text">Acessórios</span></NavLink></li>
             <li className="nav-item"><NavLink to="/budgets" className="nav-link"><span className="icon">📝</span><span className="text">Orçamentos</span></NavLink></li>
+            <li className="nav-item"><NavLink to="/orcamento-v2" className="nav-link"><span className="icon">✨</span><span className="text">Orçamento v2</span></NavLink></li>
             <li className="nav-item"><NavLink to="/reports" className="nav-link"><span className="icon">📊</span><span className="text">Relatórios</span></NavLink></li>
             <li className="nav-item"><NavLink to="/visits" className="nav-link"><span className="icon">📅</span><span className="text">Visitas</span></NavLink></li>
             {isAdmin && <li className="nav-item"><NavLink to="/configuracoes" className="nav-link"><span className="icon">⚙️</span><span className="text">Configurações</span></NavLink></li>}
@@ -313,6 +315,7 @@ function App() {
           <Route path="/products" element={<Products products={products} setProducts={setProducts} />} />
           <Route path="/accessories" element={<Accessories accessories={accessories} setAccessories={setAccessories} />} />
           <Route path="/test-cascata" element={<ProductSelectorCascataTest />} />
+          <Route path="/orcamento-v2" element={<OrcamentoV2 products={products} customers={customers} accessories={accessories} />} />
           <Route path="/budgets" element={<BudgetStatusPage budgets={budgets} setBudgets={setBudgets} validadeOrcamento={validadeOrcamento} />} />
           <Route path="/budgets/new" element={<Budgets budgets={budgets} setBudgets={setBudgets} customers={customers} products={products} accessories={accessories} setCustomers={setCustomers} />} />
           <Route path="/budgets/:budgetId/edit" element={<Budgets budgets={budgets} setBudgets={setBudgets} customers={customers} products={products} accessories={accessories} setCustomers={setCustomers} />} />
