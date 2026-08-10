@@ -110,9 +110,21 @@ const extrairCorDoNome = (nome) => {
   return '';
 };
 
-function ProductSelectorCascata({ onSelect }) {
-  const [produtos, setProdutos] = useState([]);
-  const [loading, setLoading] = useState(true);
+// Normaliza um valor de cor (pode vir como string ou como objeto { color: '...' })
+// para sempre devolver uma string.
+const normalizeColor = (c) => {
+  if (!c) return null;
+  if (typeof c === 'string') return c.trim() || null;
+  if (typeof c === 'object' && c !== null) {
+    // suporta { color: 'Branco' } ou { nome: 'Branco' } etc.
+    return (c.color || c.nome || String(c)).trim() || null;
+  }
+  return String(c).trim() || null;
+};
+
+function ProductSelectorCascata({ onSelect, initialProducts }) {
+  const [produtos, setProdutos] = useState(Array.isArray(initialProducts) ? initialProducts : []);
+  const [loading, setLoading] = useState(!Array.isArray(initialProducts) || initialProducts.length === 0);
   const [error, setError] = useState(null);
 
   const [passo, setPasso] = useState(PASSO_DEFINICAO);
@@ -145,6 +157,12 @@ function ProductSelectorCascata({ onSelect }) {
   });
 
   useEffect(() => {
+    // Se initialProducts foi passado (modo preview/standalone), não recarregar
+    // do Supabase — o estado já está populado.
+    if (Array.isArray(initialProducts) && initialProducts.length > 0) {
+      setLoading(false);
+      return;
+    }
     (async () => {
       try {
         const data = await produtoService.getAll();
@@ -155,7 +173,7 @@ function ProductSelectorCascata({ onSelect }) {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [initialProducts]);
 
   // Cascata derivada de produtos.
 // Usa as colunas explicitas (linha/grupo/colecao/cor) quando populadas;
@@ -203,10 +221,11 @@ const colecoesPorGrupo = useMemo(() => {
         getGrupo(p) === selection.grupo &&
         getColecao(p) === selection.colecao
       );
-    const fromColuna = extracted.map(p => p.cor).filter(Boolean);
+    const fromColuna = extracted.map(p => normalizeColor(p.cor)).filter(Boolean);
     const fromName = extracted.map(p => extrairCorDoNome(p.nome)).filter(Boolean);
     const fromDb = extracted
       .flatMap(p => Array.isArray(p.cores_disponiveis) ? p.cores_disponiveis : [])
+      .map(c => normalizeColor(c))
       .filter(Boolean);
     return [...new Set([...fromColuna, ...fromName, ...fromDb])].sort();
   }, [produtos, selection.linha, selection.grupo, selection.colecao]);
@@ -221,7 +240,9 @@ const colecoesPorGrupo = useMemo(() => {
   const coresDoProduto = useMemo(() => {
     if (!produtoSelecionado) return [];
     if (Array.isArray(produtoSelecionado.cores_disponiveis) && produtoSelecionado.cores_disponiveis.length > 0) {
-      return produtoSelecionado.cores_disponiveis;
+      return produtoSelecionado.cores_disponiveis
+        .map(c => normalizeColor(c))
+        .filter(Boolean);
     }
     const cor = extrairCorDoNome(produtoSelecionado.nome);
     return cor ? [cor] : [];
