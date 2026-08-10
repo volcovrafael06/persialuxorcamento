@@ -29,16 +29,81 @@ function OrcamentoV2({ products, customers, accessories }) {
   const navigate = useNavigate();
   const [clienteId, setClienteId] = useState('');
   const [clientes, setClientes] = useState(customers || []);
+  const [acessoriosDisponiveis, setAcessoriosDisponiveis] = useState(accessories || []);
   const [itens, setItens] = useState([]);
   const [itemAtual, setItemAtual] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [observacao, setObservacao] = useState('');
 
+  // Acessório em construção
+  const [acessorioAtual, setAcessorioAtual] = useState({
+    id: null,
+    name: '',
+    unit: '',
+    color: '',
+    quantity: 1
+  });
+  const [buscaAcessorio, setBuscaAcessorio] = useState('');
+
   useEffect(() => {
     if (customers && customers.length > 0) setClientes(customers);
   }, [customers]);
 
-  const total = useMemo(() => itens.reduce((s, i) => s + i.subtotal, 0), [itens]);
+  useEffect(() => {
+    if (accessories && accessories.length > 0) setAcessoriosDisponiveis(accessories);
+  }, [accessories]);
+
+  const acessoriosFiltrados = useMemo(() => {
+    const termo = buscaAcessorio.toLowerCase().trim();
+    if (!termo) return acessoriosDisponiveis;
+    return acessoriosDisponiveis.filter(a =>
+      (a.name || '').toLowerCase().includes(termo)
+    );
+  }, [acessoriosDisponiveis, buscaAcessorio]);
+
+  const selecionarAcessorio = (acc) => {
+    setAcessorioAtual({
+      id: acc.id,
+      name: acc.name,
+      unit: acc.unit,
+      color: (acc.colors && acc.colors[0]?.color) || '',
+      quantity: 1
+    });
+  };
+
+  const adicionarAcessorio = () => {
+    if (!acessorioAtual.id) return;
+    const acc = acessoriosDisponiveis.find(a => a.id === acessorioAtual.id);
+    if (!acc) return;
+    const corObj = (acc.colors || []).find(c => c.color === acessorioAtual.color);
+    const precoUnit = parseFloat(corObj?.sale_price) || parseFloat(corObj?.cost_price) || 0;
+    const subtotal = precoUnit * (parseInt(acessorioAtual.quantity) || 1);
+    setItens(prev => [...prev, {
+      id: `acc-${Date.now()}`,
+      tipo: 'acessorio',
+      produto: { nome: acc.name, codigo: acc.id },
+      unit: acc.unit,
+      color: acessorioAtual.color,
+      quantity: parseInt(acessorioAtual.quantity) || 1,
+      unit_price: precoUnit,
+      subtotal
+    }]);
+    setAcessorioAtual({ id: null, name: '', unit: '', color: '', quantity: 1 });
+  };
+
+  const removerItem = (id) => {
+    setItens(prev => prev.filter(i => i.id !== id));
+  };
+
+  const totalProdutos = useMemo(
+    () => itens.filter(i => i.tipo !== 'acessorio').reduce((s, i) => s + i.subtotal, 0),
+    [itens]
+  );
+  const totalAcessorios = useMemo(
+    () => itens.filter(i => i.tipo === 'acessorio').reduce((s, i) => s + i.subtotal, 0),
+    [itens]
+  );
+  const total = totalProdutos + totalAcessorios;
 
   const handleCascataSelect = (payload) => {
     const { selection, customizacao, produto } = payload;
@@ -63,10 +128,6 @@ function OrcamentoV2({ products, customers, accessories }) {
     setItemAtual(null);
   };
 
-  const removerItem = (id) => {
-    setItens(prev => prev.filter(i => i.id !== id));
-  };
-
   const handleSalvar = async () => {
     if (!clienteId) {
       alert('Selecione um cliente antes de salvar.');
@@ -78,33 +139,46 @@ function OrcamentoV2({ products, customers, accessories }) {
     }
     setSalvando(true);
     try {
-      const cleanProducts = itens.map(i => ({
-        produto_id: i.produto.id,
-        produto: {
-          id: i.produto.id,
-          nome: i.produto.nome,
-          modelo: i.produto.modelo,
-          tecido: i.produto.tecido,
-          codigo: i.produto.codigo,
-          metodo_calculo: i.produto.metodo_calculo
-        },
-        largura: parseFloat(i.selection.largura),
-        altura: parseFloat(i.selection.altura),
-        input_width: parseFloat(i.selection.largura),
-        input_height: parseFloat(i.selection.altura),
-        ambiente: i.selection.ambiente || '',
-        bando: false,
-        instalacao: false,
-        trilho_tipo: '',
-        painel: false,
-        num_folhas: 1,
-        customizacao: i.customizacao,
-        origem: 'cascata',
-        selection: i.selection,
-        subtotal: i.subtotal
-      }));
+      const cleanProducts = itens
+        .filter(i => i.tipo !== 'acessorio')
+        .map(i => ({
+          produto_id: i.produto.id,
+          produto: {
+            id: i.produto.id,
+            nome: i.produto.nome,
+            modelo: i.produto.modelo,
+            tecido: i.produto.tecido,
+            codigo: i.produto.codigo,
+            metodo_calculo: i.produto.metodo_calculo
+          },
+          largura: parseFloat(i.selection.largura),
+          altura: parseFloat(i.selection.altura),
+          input_width: parseFloat(i.selection.largura),
+          input_height: parseFloat(i.selection.altura),
+          ambiente: i.selection.ambiente || '',
+          bando: false,
+          instalacao: false,
+          trilho_tipo: '',
+          painel: false,
+          num_folhas: 1,
+          customizacao: i.customizacao,
+          origem: 'cascata',
+          selection: i.selection,
+          subtotal: i.subtotal
+        }));
 
       const { data: { user } } = await supabase.auth.getUser();
+      const cleanAccessories = itens
+        .filter(i => i.tipo === 'acessorio')
+        .map(i => ({
+          accessory_id: i.id.replace('acc-', ''),
+          accessory: { id: i.id.replace('acc-', ''), name: i.produto.nome, unit: i.unit, colors: [] },
+          color: i.color,
+          unit_price: i.unit_price,
+          quantity: i.quantity,
+          subtotal: i.subtotal
+        }));
+
       const { data, error } = await supabase
         .from('orcamentos')
         .insert([{
@@ -112,7 +186,7 @@ function OrcamentoV2({ products, customers, accessories }) {
           vendedor_id: user?.id || null,
           valor_total: total,
           produtos_json: JSON.stringify(cleanProducts),
-          acessorios_json: '[]',
+          acessorios_json: JSON.stringify(cleanAccessories),
           ambientes: JSON.stringify([]),
           observacao: observacao,
           status: 'pendente'
@@ -142,7 +216,7 @@ function OrcamentoV2({ products, customers, accessories }) {
             </p>
           </div>
           <div style={{ fontSize: 13, color: '#6b7280' }}>
-            {itens.length} {itens.length === 1 ? 'item' : 'itens'} · Total: <strong style={{ color: '#15803d' }}>R$ {fmt(total)}</strong>
+            <span>{itens.filter(i => i.tipo !== 'acessorio').length} produto(s) · {itens.filter(i => i.tipo === 'acessorio').length} acessório(s) · Total: <strong style={{ color: '#15803d' }}>R$ {fmt(total)}</strong></span>
           </div>
         </div>
       </header>
@@ -197,6 +271,72 @@ function OrcamentoV2({ products, customers, accessories }) {
           )}
 
           <div style={{ background: 'white', padding: 16, borderRadius: 8, marginTop: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>
+              Adicionar Acessório
+            </h3>
+            <input
+              type="text"
+              placeholder="Pesquisar acessório..."
+              value={buscaAcessorio}
+              onChange={e => setBuscaAcessorio(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, boxSizing: 'border-box', marginBottom: 8 }}
+            />
+            <select
+              value={acessorioAtual.id || ''}
+              onChange={e => {
+                const acc = acessoriosDisponiveis.find(a => String(a.id) === e.target.value);
+                if (acc) selecionarAcessorio(acc);
+              }}
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }}
+            >
+              <option value="">Selecione um acessório…</option>
+              {acessoriosFiltrados.slice(0, 100).map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+
+            {acessorioAtual.id && (
+              <div style={{ marginTop: 12, padding: 12, background: '#f9fafb', borderRadius: 6, fontSize: 13 }}>
+                <div style={{ marginBottom: 8 }}>
+                  <strong>{acessorioAtual.name}</strong> · <span style={{ color: '#6b7280' }}>{acessorioAtual.unit}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Cor</label>
+                    <select
+                      value={acessorioAtual.color}
+                      onChange={e => setAcessorioAtual(s => ({ ...s, color: e.target.value }))}
+                      style={{ width: '100%', padding: 6, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13 }}
+                    >
+                      <option value="">—</option>
+                      {(acessoriosDisponiveis.find(a => a.id === acessorioAtual.id)?.colors || []).map(c => (
+                        <option key={c.color} value={c.color}>{c.color}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Quantidade</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={acessorioAtual.quantity}
+                      onChange={e => setAcessorioAtual(s => ({ ...s, quantity: e.target.value }))}
+                      style={{ width: '100%', padding: 6, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={adicionarAcessorio}
+                  style={{ marginTop: 12, padding: '8px 16px', background: '#0ea5e9', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                >
+                  + Adicionar acessório
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ background: 'white', padding: 16, borderRadius: 8, marginTop: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
               Observação
             </label>
@@ -212,9 +352,12 @@ function OrcamentoV2({ products, customers, accessories }) {
 
         <aside>
           <div style={{ background: 'white', borderRadius: 8, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', position: 'sticky', top: 24 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>
               Itens ({itens.length})
             </h3>
+            <div style={{ marginBottom: 12, fontSize: 12, color: '#6b7280' }}>
+              Produtos: {fmt(totalProdutos)} · Acessórios: {fmt(totalAcessorios)}
+            </div>
 
             {clienteSelecionado && (
               <div style={{ padding: 8, background: '#eff6ff', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
@@ -230,15 +373,19 @@ function OrcamentoV2({ products, customers, accessories }) {
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 400, overflowY: 'auto' }}>
                 {itens.map(i => {
                   const customCount = Object.values(i.customizacao || {}).filter(Boolean).length;
+                  const isAcc = i.tipo === 'acessorio';
                   return (
                     <li key={i.id} style={{ padding: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {isAcc && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 4, marginRight: 6 }}>ACC</span>}
                           {i.produto.nome}
                         </div>
                         <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                          {i.selection.largura}m × {i.selection.altura}m · Qtd {i.selection.quantidade}
-                          {customCount > 0 && ` · ${customCount} custom.`}
+                          {isAcc
+                            ? `${i.color || '—'} · ${i.unit} · Qtd ${i.quantity}`
+                            : `${i.selection.largura}m × ${i.selection.altura}m · Qtd ${i.selection.quantidade}${customCount > 0 ? ` · ${customCount} custom.` : ''}`
+                          }
                         </div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
