@@ -315,7 +315,7 @@ function App() {
           <Route path="/products" element={<Products products={products} setProducts={setProducts} />} />
           <Route path="/accessories" element={<Accessories accessories={accessories} setAccessories={setAccessories} />} />
           <Route path="/test-cascata" element={<ProductSelectorCascataTest />} />
-          <Route path="/orcamento-v2" element={<OrcamentoV2 products={products} customers={customers} accessories={accessories} />} />
+          <Route path="/orcamento-v2" element={<OrcamentoV2 products={products} customers={customers} setCustomers={setCustomers} accessories={accessories} />} />
           <Route path="/budgets" element={<BudgetStatusPage budgets={budgets} setBudgets={setBudgets} validadeOrcamento={validadeOrcamento} />} />
           <Route path="/budgets/new" element={<Budgets budgets={budgets} setBudgets={setBudgets} customers={customers} products={products} accessories={accessories} setCustomers={setCustomers} />} />
           <Route path="/budgets/:budgetId/edit" element={<Budgets budgets={budgets} setBudgets={setBudgets} customers={customers} products={products} accessories={accessories} setCustomers={setCustomers} />} />

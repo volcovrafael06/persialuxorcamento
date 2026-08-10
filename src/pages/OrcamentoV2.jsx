@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ProductSelectorCascata from '../components/ProductSelectorCascata';
 import '../components/ProductSelectorCascata.css';
 import { supabase } from '../supabase/client';
+import { clienteService } from '../services/clienteService';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -25,7 +26,7 @@ function calcSubtotal(produto, largura, altura, qty) {
   return base * q;
 }
 
-function OrcamentoV2({ products, customers, accessories }) {
+function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   const navigate = useNavigate();
   const [clienteId, setClienteId] = useState('');
   const [clientes, setClientes] = useState(customers || []);
@@ -34,6 +35,13 @@ function OrcamentoV2({ products, customers, accessories }) {
   const [itemAtual, setItemAtual] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [observacao, setObservacao] = useState('');
+
+  // Cadastro inline de cliente
+  const [mostrarFormCliente, setMostrarFormCliente] = useState(false);
+  const [novoCliente, setNovoCliente] = useState({ name: '', phone: '', email: '', address: '', cpf: '' });
+  const [salvandoCliente, setSalvandoCliente] = useState(false);
+  const [erroCliente, setErroCliente] = useState('');
+  const [infoClientes, setInfoClientes] = useState(null);
 
   // Acessório em construção
   const [acessorioAtual, setAcessorioAtual] = useState({
@@ -46,12 +54,35 @@ function OrcamentoV2({ products, customers, accessories }) {
   const [buscaAcessorio, setBuscaAcessorio] = useState('');
 
   useEffect(() => {
-    if (customers && customers.length > 0) setClientes(customers);
+    if (customers && customers.length > 0) {
+      setClientes(customers);
+      setInfoClientes(null);
+    }
   }, [customers]);
 
   useEffect(() => {
     if (accessories && accessories.length > 0) setAcessoriosDisponiveis(accessories);
   }, [accessories]);
+
+  // Carrega clientes do Supabase se a prop vier vazia (caso o cache local esteja
+  // vazio na primeira renderização ou o usuário tenha acabado de logar).
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      if (clientes && clientes.length > 0) return;
+      try {
+        const lista = await clienteService.getAll();
+        if (!cancelado && Array.isArray(lista)) {
+          setClientes(lista);
+          if (setCustomers) setCustomers(lista);
+        }
+      } catch (err) {
+        console.warn('[OrcamentoV2] falha ao carregar clientes:', err.message);
+      }
+    })();
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const acessoriosFiltrados = useMemo(() => {
     const termo = buscaAcessorio.toLowerCase().trim();
@@ -69,6 +100,39 @@ function OrcamentoV2({ products, customers, accessories }) {
       color: (acc.colors && acc.colors[0]?.color) || '',
       quantity: 1
     });
+  };
+
+  const salvarNovoCliente = async () => {
+    const nome = novoCliente.name.trim();
+    if (!nome) {
+      setErroCliente('Nome é obrigatório.');
+      return;
+    }
+    setErroCliente('');
+    setSalvandoCliente(true);
+    try {
+      const payload = {
+        name: nome.toUpperCase(),
+        phone: novoCliente.phone.trim() || null,
+        email: novoCliente.email.trim() || null,
+        address: novoCliente.address.trim() ? novoCliente.address.trim().toUpperCase() : null,
+        cpf: novoCliente.cpf.trim() || null
+      };
+      const criado = await clienteService.create(payload);
+      if (!criado || !criado.id) throw new Error('Cliente criado sem id');
+      const listaAtualizada = [...clientes, criado];
+      setClientes(listaAtualizada);
+      if (setCustomers) setCustomers(listaAtualizada);
+      setClienteId(criado.id);
+      setNovoCliente({ name: '', phone: '', email: '', address: '', cpf: '' });
+      setMostrarFormCliente(false);
+      setInfoClientes(`Cliente "${criado.name}" cadastrado e selecionado.`);
+    } catch (err) {
+      console.error('[OrcamentoV2] erro ao salvar cliente:', err);
+      setErroCliente(`Falha ao salvar: ${err.message || 'erro desconhecido'}`);
+    } finally {
+      setSalvandoCliente(false);
+    }
   };
 
   const adicionarAcessorio = () => {
@@ -224,9 +288,18 @@ function OrcamentoV2({ products, customers, accessories }) {
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24, display: 'grid', gridTemplateColumns: '1fr 400px', gap: 24 }}>
         <section>
           <div style={{ background: 'white', padding: 16, borderRadius: 8, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-              Cliente
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>
+                Cliente
+              </label>
+              <button
+                type="button"
+                onClick={() => setMostrarFormCliente(s => !s)}
+                style={{ fontSize: 12, color: mostrarFormCliente ? '#dc2626' : '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+              >
+                {mostrarFormCliente ? '× Cancelar' : '+ Cadastrar novo cliente'}
+              </button>
+            </div>
             <select
               value={clienteId}
               onChange={e => setClienteId(e.target.value)}
@@ -237,10 +310,103 @@ function OrcamentoV2({ products, customers, accessories }) {
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            {clientes.length === 0 && (
+            {clientes.length === 0 && !infoClientes && (
               <p style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
-                Nenhum cliente cadastrado. Cadastre um cliente antes de continuar.
+                Nenhum cliente cadastrado. Clique em <strong>+ Cadastrar novo cliente</strong> acima.
               </p>
+            )}
+            {infoClientes && (
+              <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                {infoClientes}
+              </p>
+            )}
+
+            {mostrarFormCliente && (
+              <div style={{ marginTop: 12, padding: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 2 }}>
+                      Nome <span style={{ color: '#dc2626' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={novoCliente.name}
+                      onChange={e => setNovoCliente(s => ({ ...s, name: e.target.value }))}
+                      placeholder="Nome completo"
+                      style={{ width: '100%', padding: 6, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 2 }}>Telefone</label>
+                    <input
+                      type="tel"
+                      value={novoCliente.phone}
+                      onChange={e => setNovoCliente(s => ({ ...s, phone: e.target.value }))}
+                      placeholder="(11) 99999-9999"
+                      style={{ width: '100%', padding: 6, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 2 }}>CPF</label>
+                    <input
+                      type="text"
+                      value={novoCliente.cpf}
+                      onChange={e => setNovoCliente(s => ({ ...s, cpf: e.target.value }))}
+                      placeholder="000.000.000-00"
+                      style={{ width: '100%', padding: 6, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 2 }}>E-mail</label>
+                    <input
+                      type="email"
+                      value={novoCliente.email}
+                      onChange={e => setNovoCliente(s => ({ ...s, email: e.target.value }))}
+                      placeholder="email@exemplo.com"
+                      style={{ width: '100%', padding: 6, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 2 }}>Endereço</label>
+                    <input
+                      type="text"
+                      value={novoCliente.address}
+                      onChange={e => setNovoCliente(s => ({ ...s, address: e.target.value }))}
+                      placeholder="Rua, número, bairro, cidade"
+                      style={{ width: '100%', padding: 6, border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                </div>
+                {erroCliente && (
+                  <p style={{ fontSize: 12, color: '#dc2626', marginTop: 8 }}>{erroCliente}</p>
+                )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button
+                    type="button"
+                    onClick={salvarNovoCliente}
+                    disabled={salvandoCliente || !novoCliente.name.trim()}
+                    style={{
+                      padding: '8px 16px',
+                      background: (!novoCliente.name.trim() || salvandoCliente) ? '#e5e7eb' : '#16a34a',
+                      color: (!novoCliente.name.trim() || salvandoCliente) ? '#9ca3af' : 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: (!novoCliente.name.trim() || salvandoCliente) ? 'not-allowed' : 'pointer',
+                      fontWeight: 600,
+                      fontSize: 13
+                    }}
+                  >
+                    {salvandoCliente ? 'Salvando…' : 'Salvar cliente'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMostrarFormCliente(false); setErroCliente(''); }}
+                    style={{ padding: '8px 16px', background: 'white', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 
