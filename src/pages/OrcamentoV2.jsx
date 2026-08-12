@@ -4,6 +4,7 @@ import ProductSelectorCascata from '../components/ProductSelectorCascata';
 import '../components/ProductSelectorCascata.css';
 import { supabase } from '../supabase/client';
 import { clienteService } from '../services/clienteService';
+import { sendMetaEvent, persistMetaEventResult } from '../services/metaCapiService';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35,6 +36,11 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   const [itemAtual, setItemAtual] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [observacao, setObservacao] = useState('');
+
+  // ID do orçamento já persistido no banco. Permite "Finalizar orçamento" depois de salvar.
+  const [orcamentoId, setOrcamentoId] = useState(null);
+  const [orcamentoStatus, setOrcamentoStatus] = useState('rascunho');
+  const [finalizando, setFinalizando] = useState(false);
 
   // Cadastro inline de cliente
   const [mostrarFormCliente, setMostrarFormCliente] = useState(false);
@@ -83,6 +89,9 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Computado em cada render — fresh em qualquer closure async
+  const clienteSelecionado = clientes.find(c => String(c.id) === String(clienteId));
 
   const acessoriosFiltrados = useMemo(() => {
     const termo = buscaAcessorio.toLowerCase().trim();
@@ -135,12 +144,24 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     }
   };
 
-  const adicionarAcessorio = () => {
-    if (!acessorioAtual.id) return;
+  // Preço do acessório selecionado para exibição e validação
+  const accSelecionadoInfo = useMemo(() => {
+    if (!acessorioAtual.id) return null;
     const acc = acessoriosDisponiveis.find(a => a.id === acessorioAtual.id);
-    if (!acc) return;
-    const corObj = (acc.colors || []).find(c => c.color === acessorioAtual.color);
-    const precoUnit = parseFloat(corObj?.sale_price) || parseFloat(corObj?.cost_price) || 0;
+    if (!acc) return null;
+    const corObj = (acc.colors || []).find(c => c.color === acessorioAtual.color)
+      || (acc.colors || []).find(c => c.sale_price != null);
+    const precoUnit = parseFloat(corObj?.sale_price) || 0;
+    return { acc, precoUnit, corObj };
+  }, [acessorioAtual.id, acessorioAtual.color, acessoriosDisponiveis]);
+
+  const adicionarAcessorio = () => {
+    if (!acessorioAtual.id || !accSelecionadoInfo) return;
+    const { acc, precoUnit } = accSelecionadoInfo;
+    if (precoUnit === 0) {
+      alert(`O acessório "${acc.name}" não tem preço de venda cadastrado.\nCadastre o preço em Acessórios antes de adicionar ao orçamento.`);
+      return;
+    }
     const subtotal = precoUnit * (parseInt(acessorioAtual.quantity) || 1);
     setItens(prev => [...prev, {
       id: `acc-${Date.now()}`,
@@ -192,6 +213,9 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     setItemAtual(null);
   };
 
+  // computa NO momento da chamada — evita stale closure nas async functions
+  const clienteSelecionado = clientes.find(c => String(c.id) === String(clienteId));
+
   const handleSalvar = async () => {
     if (!clienteId) {
       alert('Selecione um cliente antes de salvar.');
@@ -232,11 +256,12 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
         }));
 
       const { data: { user } } = await supabase.auth.getUser();
+      // acessório: produto.codigo = UUID do produtos_acessorios (acc.id)
       const cleanAccessories = itens
         .filter(i => i.tipo === 'acessorio')
         .map(i => ({
-          accessory_id: i.id.replace('acc-', ''),
-          accessory: { id: i.id.replace('acc-', ''), name: i.produto.nome, unit: i.unit, colors: [] },
+          accessory_id: i.produto.codigo,
+          accessory: { id: i.produto.codigo, name: i.produto.nome, unit: i.unit, colors: [] },
           color: i.color,
           unit_price: i.unit_price,
           quantity: i.quantity,
@@ -258,7 +283,27 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
         .select()
         .single();
       if (error) throw error;
+      // Marca o orçamento como já persistido + status atual.
+      setOrcamentoId(data.id);
+      setOrcamentoStatus(data.status || 'pendente');
       alert('Orçamento criado com sucesso!');
+      // Dispara Lead pra Meta CAPI (status=pendente). Best-effort — não bloqueia navegação.
+      try {
+        const eventId = crypto.randomUUID();
+        const metaResult = await sendMetaEvent({
+          eventName: 'Lead',
+          eventId,
+          cliente: clienteSelecionado,
+          orcamento: data,
+        });
+        await persistMetaEventResult(data.id, {
+          eventId,
+          eventName: 'Lead',
+          response: metaResult,
+        });
+      } catch (e) {
+        console.warn('[meta-capi] erro ao enviar Lead (não crítico):', e?.message || e);
+      }
       navigate(`/budgets/${data.id}/view`);
     } catch (err) {
       alert('Erro ao salvar: ' + (err.message || 'desconhecido'));
@@ -267,7 +312,53 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     }
   };
 
-  const clienteSelecionado = clientes.find(c => String(c.id) === String(clienteId));
+  // Finaliza o orçamento atual: UPDATE status='finalizado' + dispara Purchase.
+  const handleFinalizar = async () => {
+    if (!orcamentoId) {
+      alert('Salve o orçamento antes de finalizar.');
+      return;
+    }
+    if (orcamentoStatus === 'finalizado') {
+      alert('Este orçamento já está finalizado.');
+      return;
+    }
+    const ok = window.confirm('Marcar este orçamento como finalizado?\nIsso registrará uma conversão (Purchase) na Meta.');
+    if (!ok) return;
+    setFinalizando(true);
+    try {
+      const { data: updated, error } = await supabase
+        .from('orcamentos')
+        .update({ status: 'finalizado', updated_at: new Date().toISOString() })
+        .eq('id', orcamentoId)
+        .select()
+        .single();
+      if (error) throw error;
+      setOrcamentoStatus('finalizado');
+      // Dispara Purchase pra Meta CAPI. Best-effort.
+      try {
+        const eventId = crypto.randomUUID();
+        const metaResult = await sendMetaEvent({
+          eventName: 'Purchase',
+          eventId,
+          cliente: clienteSelecionado,
+          orcamento: updated,
+        });
+        await persistMetaEventResult(orcamentoId, {
+          eventId,
+          eventName: 'Purchase',
+          response: metaResult,
+        });
+      } catch (e) {
+        console.warn('[meta-capi] erro ao enviar Purchase (não crítico):', e?.message || e);
+      }
+      alert('Orçamento finalizado! Conversão disparada pra Meta.');
+      navigate(`/budgets/${orcamentoId}/view`);
+    } catch (err) {
+      alert('Erro ao finalizar: ' + (err.message || 'desconhecido'));
+    } finally {
+      setFinalizando(false);
+    }
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif' }}>
@@ -465,6 +556,16 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
               <div style={{ marginTop: 12, padding: 12, background: '#f9fafb', borderRadius: 6, fontSize: 13 }}>
                 <div style={{ marginBottom: 8 }}>
                   <strong>{acessorioAtual.name}</strong> · <span style={{ color: '#6b7280' }}>{acessorioAtual.unit}</span>
+                  {accSelecionadoInfo && accSelecionadoInfo.precoUnit > 0 && (
+                    <span style={{ marginLeft: 8, background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
+                      R$ {fmt(accSelecionadoInfo.precoUnit)}/{acessorioAtual.unit}
+                    </span>
+                  )}
+                  {accSelecionadoInfo && accSelecionadoInfo.precoUnit === 0 && (
+                    <span style={{ marginLeft: 8, background: '#fef9c3', color: '#854d0e', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
+                      ⚠ Sem preço
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div>
@@ -592,7 +693,36 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                   fontSize: 14
                 }}
               >
-                {salvando ? 'Salvando…' : 'Salvar orçamento'}
+                {salvando ? 'Salvando…' : (orcamentoId ? 'Salvar alterações' : 'Salvar orçamento')}
+              </button>
+              <button
+                onClick={handleFinalizar}
+                disabled={!orcamentoId || orcamentoStatus === 'finalizado' || finalizando}
+                title={
+                  !orcamentoId
+                    ? 'Salve o orçamento antes de finalizar'
+                    : orcamentoStatus === 'finalizado'
+                    ? 'Já finalizado'
+                    : 'Marca o orçamento como venda efetuada (Purchase)'
+                }
+                style={{
+                  marginTop: 8,
+                  width: '100%',
+                  padding: '12px 20px',
+                  background: (!orcamentoId || orcamentoStatus === 'finalizado' || finalizando) ? '#e5e7eb' : '#15803d',
+                  color: (!orcamentoId || orcamentoStatus === 'finalizado' || finalizando) ? '#9ca3af' : 'white',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: (!orcamentoId || orcamentoStatus === 'finalizado' || finalizando) ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                  fontSize: 14
+                }}
+              >
+                {finalizando
+                  ? 'Finalizando…'
+                  : orcamentoStatus === 'finalizado'
+                  ? '✓ Finalizado (Purchase enviado)'
+                  : 'Finalizar agora (enviar Purchase)'}
               </button>
             </div>
           </div>

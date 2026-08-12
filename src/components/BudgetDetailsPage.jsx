@@ -86,12 +86,20 @@ function BudgetDetailsPage({ companyLogo }) {
           }
         }
         
-        // Carregar os acessórios
+        // Carregar os acessórios — busca em ambas as tabelas que podem ter sido usadas
         const { data: accessoriesData, error: accessoriesError } = await supabase
           .from('accessories')
           .select('*');
 
-        if (accessoriesError) throw accessoriesError;
+        const { data: produtosAcessoriosData, error: produtosAcessoriosError } = await supabase
+          .from('produtos_acessorios')
+          .select('*');
+
+        if (accessoriesError && produtosAcessoriosError) throw accessoriesError;
+        const allAccessories = [
+          ...(accessoriesData || []),
+          ...(produtosAcessoriosData || []),
+        ];
         console.log('All accessories data:', accessoriesData);
 
         // Carregar os produtos
@@ -104,7 +112,7 @@ function BudgetDetailsPage({ companyLogo }) {
 
         setBudget(budgetData);
         setProducts(productsData);
-        setAccessories(accessoriesData);
+        setAccessories(allAccessories);
       } catch (error) {
         console.error('Error loading budget details:', error);
         setError(`Erro ao carregar detalhes do orçamento: ${error.message}`);
