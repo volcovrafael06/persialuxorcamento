@@ -87,7 +87,14 @@ const extrairColecaoDoNome = (nome) => {
   return s;
 };
 
-// Extrai a cor (modelo no fim do nome, ou segmento após separador).
+// Extrai a cor do nome. Estratégia:
+// 1) Se contém separador " — " ou " - ", o segundo segmento é a cor.
+// 2) Se não, tenta encontrar um modelo conhecido no fim; se houver,
+//    devolve string vazia (o modelo não é cor — está implícito no grupo).
+// 3) Caso contrário, devolve string vazia (não chutar).
+//
+// IMPORTANTE: nunca retornar o nome do modelo como cor (ex: "Tubo 32"
+// não é cor, é o modelo/grupo).
 const extrairCorDoNome = (nome) => {
   if (!nome) return '';
   const s = String(nome).trim();
@@ -102,11 +109,7 @@ const extrairCorDoNome = (nome) => {
     const partes = s.split(' - ').map(p => p.trim());
     return partes[1] || '';
   }
-  const modelo = encontrarModelo(s);
-  if (modelo) {
-    const idx = s.lastIndexOf(modelo);
-    if (idx >= 0) return s.slice(idx).trim();
-  }
+  // Sem separador: o "modelo" no fim NÃO é cor. Devolve vazio.
   return '';
 };
 
@@ -184,6 +187,21 @@ const getColecao = (p) => {
   if (p.colecao) return p.colecao;
   return extrairColecaoDoNome(p.nome);
 };
+// Retorna TODAS as cores de um produto (para filtrar múltiplas cores).
+const getCores = (p) => {
+  const cores = new Set();
+  if (p.cor) cores.add(p.cor);
+  if (Array.isArray(p.cores_disponiveis)) {
+    p.cores_disponiveis.forEach(c => {
+      const n = normalizeColor(c);
+      if (n) cores.add(n);
+    });
+  }
+  const fromName = extrairCorDoNome(p.nome);
+  if (fromName) cores.add(fromName);
+  return cores;
+};
+
 const getCor = (p) => {
   if (p.cor) return p.cor;
   return extrairCorDoNome(p.nome);
@@ -253,7 +271,7 @@ const colecoesPorGrupo = useMemo(() => {
       getLinha(p) === selection.linha &&
       getGrupo(p) === selection.grupo &&
       getColecao(p) === selection.colecao &&
-      getCor(p) === selection.cor
+      getCores(p).has(selection.cor)
     );
   }, [produtos, selection]);
 
