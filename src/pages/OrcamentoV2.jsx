@@ -213,9 +213,6 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     setItemAtual(null);
   };
 
-  // computa NO momento da chamada — evita stale closure nas async functions
-  const clienteSelecionado = clientes.find(c => String(c.id) === String(clienteId));
-
   const handleSalvar = async () => {
     if (!clienteId) {
       alert('Selecione um cliente antes de salvar.');
