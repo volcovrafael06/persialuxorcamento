@@ -187,10 +187,18 @@ const getColecao = (p) => {
   if (p.colecao) return p.colecao;
   return extrairColecaoDoNome(p.nome);
 };
+// Detecta se um valor é na verdade um modelo/tipo de acionamento
+// (e não uma cor) — esses valores foram importados errado na coluna `cor`.
+// Padrões comuns: "Monocomando corrente", "Entre Vidros", "Standard",
+// "Bead Chain", "Double Pull", etc.
+const ACIONAMENTO_LIKE = /Monocomando|Entre Vidros|Standard|Bead Chain|Double Pull|Manual Motor|Sem Corda|com Comando|corrente|comando|acionamento|Bando Premium|Blackout|Translúcida|PVC/i;
+const isAcionamentoLike = (s) => ACIONAMENTO_LIKE.test(String(s || ''));
+
 // Retorna TODAS as cores de um produto (para filtrar múltiplas cores).
+// Ignora valores que parecem ser tipo de acionamento (importados errados).
 const getCores = (p) => {
   const cores = new Set();
-  if (p.cor) cores.add(p.cor);
+  if (p.cor && !isAcionamentoLike(p.cor)) cores.add(p.cor);
   if (Array.isArray(p.cores_disponiveis)) {
     p.cores_disponiveis.forEach(c => {
       const n = normalizeColor(c);
@@ -200,6 +208,18 @@ const getCores = (p) => {
   const fromName = extrairCorDoNome(p.nome);
   if (fromName) cores.add(fromName);
   return cores;
+};
+
+// Pega nome do tipo de acionamento (se houver na coluna cor ou no nome)
+// — usado pra tag/persistir mas não pra filtrar cores.
+const getAcionamentoLabel = (p) => {
+  if (p.cor && isAcionamentoLike(p.cor)) return p.cor;
+  // Caso nome tenha tipo de acionamento após " — "
+  if (p.nome && p.nome.includes(' — ')) {
+    const tail = p.nome.split(' — ').pop()?.trim();
+    if (tail && isAcionamentoLike(tail)) return tail;
+  }
+  return null;
 };
 
 const getCor = (p) => {
@@ -231,21 +251,25 @@ const colecoesPorGrupo = useMemo(() => {
   }, [produtos, selection.linha, selection.grupo]);
 
   const coresPorColecao = useMemo(() => {
-    // Combina cores extraídas do nome (regex) com cores_disponiveis do banco
-    // (JSONB) e da coluna explicita `cor`. A coluna explicita tem prioridade.
     const extracted = produtos
       .filter(p =>
         getLinha(p) === selection.linha &&
         getGrupo(p) === selection.grupo &&
         getColecao(p) === selection.colecao
       );
-    const fromColuna = extracted.map(p => normalizeColor(p.cor)).filter(Boolean);
-    const fromName = extracted.map(p => extrairCorDoNome(p.nome)).filter(Boolean);
+    // Filtra `cor` que na verdade é um tipo de acionamento (importação errada)
+    const fromColuna = extracted.map(p => normalizeColor(p.cor)).filter(c => c && !isAcionamentoLike(c));
+    const fromName = extracted.map(p => extrairCorDoNome(p.nome)).filter(c => c && !isAcionamentoLike(c));
     const fromDb = extracted
       .flatMap(p => Array.isArray(p.cores_disponiveis) ? p.cores_disponiveis : [])
       .map(c => normalizeColor(c))
-      .filter(Boolean);
-    return [...new Set([...fromColuna, ...fromName, ...fromDb])].sort();
+      .filter(c => c && !isAcionamentoLike(c));
+    const reais = [...new Set([...fromColuna, ...fromName, ...fromDb])].sort();
+    // Quando a coleção inteira não tem cores reais (ex: Cortina Vertical Wave,
+    // Persiana Vertical), oferecer string vazia "" como opção "Única" —
+    // o usuário pode pular cor e ir direto pra seleção de produto.
+    if (reais.length === 0) return [''];
+    return reais;
   }, [produtos, selection.linha, selection.grupo, selection.colecao]);
 
   // Cores do produto selecionado (preferência: JSONB, fallback: regex).
@@ -271,9 +295,13 @@ const colecoesPorGrupo = useMemo(() => {
       getLinha(p) === selection.linha &&
       getGrupo(p) === selection.grupo &&
       getColecao(p) === selection.colecao &&
-      getCores(p).has(selection.cor)
+      // Se cor selecionada é "" (opção "Única"), ignora o filtro de cor.
+      (selection.cor === '' || getCores(p).has(selection.cor))
     );
   }, [produtos, selection]);
+
+  // Coleção atual tem cores REAIS? (pra liberar avanço sem cor selecionada)
+  const colecaoPossuiCores = coresPorColecao.length > 0 && !(coresPorColecao.length === 1 && coresPorColecao[0] === '');
 
   const acionamentos = useMemo(() => ACIONAMENTOS_POR_MODELO[selection.modelo] || ['32', '38', '45', '55'], [selection.modelo]);
 
@@ -315,7 +343,15 @@ const colecoesPorGrupo = useMemo(() => {
   const handleField = (field, value) => setSelection(s => ({ ...s, [field]: value }));
   const handleCustom = (field, value) => setCustomizacao(c => ({ ...c, [field]: value }));
 
-  const podeAvancar = !!selection.linha && !!selection.grupo && !!selection.colecao && !!selection.cor && !!selection.produtoId && !!selection.modelo && !!selection.acionamento;
+  // Cor pode ficar vazia quando a coleção não tem cores reais (Vertical Wave etc)
+// — `colecaoPossuiCores === false` permite avançar sem selecionar cor.
+const podeAvancar = !!selection.linha
+    && !!selection.grupo
+    && !!selection.colecao
+    && !!selection.produtoId
+    && !!selection.modelo
+    && !!selection.acionamento
+    && (selection.cor || !colecaoPossuiCores);
 
   const handleAvancar = () => {
     if (podeAvancar) {
@@ -357,12 +393,20 @@ const colecoesPorGrupo = useMemo(() => {
 
           <label>Cor</label>
           <select value={selection.cor} onChange={e => handleCorChange(e.target.value)} disabled={!selection.colecao}>
-            <option value="">-- No Selection --</option>
-            {coresPorColecao.map(c => <option key={c} value={c}>{c}</option>)}
+            {coresPorColecao.length === 1 && coresPorColecao[0] === '' ? (
+              <>
+                <option value="">— Cor única (não selecionável) —</option>
+              </>
+            ) : (
+              <>
+                <option value="">-- No Selection --</option>
+                {coresPorColecao.map(c => <option key={c} value={c}>{c}</option>)}
+              </>
+            )}
           </select>
 
           <label>Produtos (Escolha um Produto)</label>
-          <select value={selection.produtoId} onChange={e => handleProdutoChange(e.target.value)} disabled={!selection.cor}>
+          <select value={selection.produtoId} onChange={e => handleProdutoChange(e.target.value)} disabled={!selection.colecao || (colecaoPossuiCores && !selection.cor)}>
             <option value="">-- No Selection --</option>
             {produtosFiltrados.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.codigo})</option>)}
           </select>
