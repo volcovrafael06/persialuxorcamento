@@ -355,154 +355,165 @@ function BudgetDetailsPage({ companyLogo }) {
     const discountRate = parseFloat(pc.discountRate) || 0;
     return total * (1 - discountRate / 100);
   };
+  // ---------- PDF generation ----------
+
+  // Adiciona logo + dados da empresa no canto superior direito.
+  // Retorna a posição Y final pra próximo bloco.
+  const renderPdfHeader = (doc) => {
+    if (companyLogo) {
+      // try/catch pra não falhar o PDF inteiro se o logo estiver corrompido
+      getDataUri(companyLogo).then(logoData => {
+        if (logoData) doc.addImage(logoData, 'PNG', 14, 10, 50, 25);
+      });
+    }
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    let yPos = 15;
+    if (companyData) {
+      const companyInfo = [
+        companyData.nome_fantasia,
+        companyData.endereco,
+        companyData.email,
+        `Tel: ${companyData.telefone}`,
+      ].filter(Boolean);
+      companyInfo.forEach(line => {
+        doc.text(line, 196, yPos, { align: 'right' });
+        yPos += 4.5;
+      });
+    }
+  };
+
+  // Adiciona título + dados do cliente. Retorna Y após o bloco.
+  const renderPdfTitleAndCustomer = (doc) => {
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(20, 83, 45); // verde escuro (mesmo verde da UI)
+    doc.text(`Orçamento #${budget.numero_orcamento || budget.id}`, 14, 45);
+    doc.setTextColor(0, 0, 0);
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString()}`, 14, 52);
+    doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}`, 14, 57);
+
+    let yAfterCustomer = 62;
+    if (budget.vendedores) {
+      doc.text(`Vendedor: ${budget.vendedores.nome}`, 14, 62);
+      yAfterCustomer = 67;
+    }
+
+    if (budget.clientes) {
+      const clienteY = yAfterCustomer;
+      doc.setFillColor(239, 246, 255); // azul claro
+      doc.rect(14, clienteY, 182, 28, 'F');
+      doc.setDrawColor(30, 64, 175);
+      doc.setLineWidth(0.4);
+      doc.rect(14, clienteY, 182, 28);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DADOS DO CLIENTE', 16, clienteY + 6);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(`Nome: ${budget.clientes.name}`, 16, clienteY + 12);
+      doc.text(`Endereço: ${budget.clientes.address || 'Não informado'}`, 16, clienteY + 18);
+      const contact = [budget.clientes.phone, budget.clientes.email].filter(Boolean).join(' | ') || '—';
+      doc.text(`Contato: ${contact}`, 16, clienteY + 24);
+      yAfterCustomer = clienteY + 32;
+    }
+    return yAfterCustomer;
+  };
+
+  // Constrói as linhas do footer (TOTAL, valor negociado, condições de pagamento)
+  const buildPdfFooter = () => {
+    const rows = [];
+    rows.push([
+      { content: 'TOTAL:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', fillColor: [240, 253, 244] } },
+      { content: formatCurrency(Number(budget.valor_total || 0)), styles: { halign: 'right', fontStyle: 'bold', fillColor: [240, 253, 244] } },
+    ]);
+
+    if (budget.valor_negociado && Number(budget.valor_negociado) !== Number(budget.valor_total)) {
+      rows.push([
+        { content: 'VALOR NEGOCIADO:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', textColor: [0, 100, 0] } },
+        { content: formatCurrency(budget.valor_negociado), styles: { halign: 'right', fontStyle: 'bold', textColor: [0, 100, 0] } },
+      ]);
+    }
+
+    const conditions = safeParseArray(budget.payment_conditions);
+    const addCondRow = (label, value) => rows.push([
+      { content: label, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic', textColor: [80, 80, 80] } },
+      { content: value, styles: { halign: 'right', fontStyle: 'italic', textColor: [80, 80, 80] } },
+    ]);
+
+    if (Array.isArray(conditions) && conditions.length > 0) {
+      conditions.forEach(pc => {
+        if (pc.method === 'credit_card') {
+          const per = calculateInstallmentValueFromCondition(budget, pc);
+          const installments = parseInt(pc.installments) || 1;
+          addCondRow(`CONDIÇÃO DE PAGAMENTO (CARTÃO - ${installments}x):`, `${installments}x de ${formatCurrency(per)}`);
+          if (parseFloat(pc.taxRate) > 0) {
+            addCondRow(`TOTAL COM JUROS (${pc.taxRate}%):`, formatCurrency(per * installments));
+          }
+        } else if (pc.method === 'pix') {
+          addCondRow(`CONDIÇÃO DE PAGAMENTO (PIX - ${pc.discountRate || 0}% DE DESCONTO):`, formatCurrency(calculateDiscountValueFromCondition(budget, pc)));
+        }
+      });
+    } else if (budget.payment_method === 'credit_card') {
+      const installmentValue = calculateInstallmentValue(budget);
+      const installments = parseInt(budget.payment_installments) || 1;
+      addCondRow(`CONDIÇÃO DE PAGAMENTO (CARTÃO - ${installments}x):`, `${installments}x de ${formatCurrency(installmentValue)}`);
+      if (parseFloat(budget.payment_tax_rate) > 0) {
+        addCondRow(`TOTAL COM JUROS (${budget.payment_tax_rate}%):`, formatCurrency(installmentValue * installments));
+      }
+    } else if (budget.payment_method === 'pix' && parseFloat(budget.payment_discount_rate) > 0) {
+      addCondRow(`CONDIÇÃO DE PAGAMENTO (PIX - ${budget.payment_discount_rate}% DE DESCONTO):`, formatCurrency(calculateDiscountValue(budget)));
+    }
+    return rows;
+  };
+
   const handleDownloadPDF = async () => {
     try {
       const doc = new jsPDF();
-      
-      // Adicionar Logo
-      if (companyLogo) {
-        const logoData = await getDataUri(companyLogo);
-        if (logoData) {
-          doc.addImage(logoData, 'PNG', 14, 10, 50, 25);
-        }
-      }
+      renderPdfHeader(doc);
+      const tableStartY = renderPdfTitleAndCustomer(doc);
 
-      // Dados da Empresa (Lado Direito)
-      doc.setFontSize(10);
-      let yPos = 15;
-      if (companyData) {
-        const companyInfo = [
-          companyData.nome_fantasia,
-          companyData.endereco,
-          companyData.email,
-          `Tel: ${companyData.telefone}`
-        ].filter(Boolean);
-
-        companyInfo.forEach(line => {
-          doc.text(line, 196, yPos, { align: 'right' });
-          yPos += 5;
-        });
-      }
-
-      // Título do Orçamento
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Orçamento #${budget.numero_orcamento || budget.id}`, 14, 45);
-      
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString()}`, 14, 52);
-      doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}`, 14, 57);
-      
-      if (budget.vendedores) {
-        doc.text(`Vendedor: ${budget.vendedores.nome}`, 14, 62);
-      }
-
-      // Dados do Cliente
-      if (budget.clientes) {
-        doc.rect(14, 62, 182, 25);
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.text('DADOS DO CLIENTE', 16, 68);
-        
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Nome: ${budget.clientes.name}`, 16, 74);
-        doc.text(`Endereço: ${budget.clientes.address || 'Não informado'}`, 16, 79);
-        doc.text(`Contato: ${budget.clientes.phone || ''} | ${budget.clientes.email || ''}`, 16, 84);
-      }
-
-      // Tabela de Itens
       const tableRows = buildPdfRows().map(row => {
-        // Formatar descrição para quebrar linhas corretamente no PDF
         row[0] = row[0].replace(/ \| /g, '\n');
         return row;
       });
 
-      // Prepare footer rows for PDF
-      const footerRows = [];
-      
-      // Total row
-      footerRows.push([
-        { content: 'TOTAL:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold' } },
-        { content: formatCurrency(Number(budget.valor_total || 0)), styles: { halign: 'right', fontStyle: 'bold' } }
-      ]);
-
-      // Negotiated Value row (if exists)
-      if (budget.valor_negociado && Number(budget.valor_negociado) !== Number(budget.valor_total)) {
-        footerRows.push([
-          { content: 'VALOR NEGOCIADO:', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', textColor: [0, 100, 0] } },
-          { content: formatCurrency(budget.valor_negociado), styles: { halign: 'right', fontStyle: 'bold', textColor: [0, 100, 0] } }
-        ]);
-      }
-
-      // Payment Conditions (multiple or single)
-      const conditions = safeParseArray(budget.payment_conditions);
-      if (Array.isArray(conditions) && conditions.length > 0) {
-        conditions.forEach(pc => {
-          if (pc.method === 'credit_card') {
-            const per = calculateInstallmentValueFromCondition(budget, pc);
-            const installments = parseInt(pc.installments) || 1;
-            const totalWithInterest = per * installments;
-            footerRows.push([
-              { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO - ${installments}x):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-              { content: `${installments}x de ${formatCurrency(per)}`, styles: { halign: 'right', fontStyle: 'italic' } }
-            ]);
-            if (parseFloat(pc.taxRate) > 0) {
-              footerRows.push([
-                { content: `TOTAL COM JUROS (${pc.taxRate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-                { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic' } }
-              ]);
-            }
-          } else if (pc.method === 'pix') {
-            const discountedValue = calculateDiscountValueFromCondition(budget, pc);
-            footerRows.push([
-              { content: `CONDIÇÃO DE PAGAMENTO (PIX - ${pc.discountRate || 0}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-              { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic' } }
-            ]);
-          }
-        });
-      } else {
-        if (budget.payment_method === 'credit_card') {
-          const installmentValue = calculateInstallmentValue(budget);
-          const totalWithInterest = installmentValue * (parseInt(budget.payment_installments) || 1);
-          footerRows.push([
-            { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO - ${budget.payment_installments}x):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-            { content: `${budget.payment_installments}x de ${formatCurrency(installmentValue)}`, styles: { halign: 'right', fontStyle: 'italic' } }
-          ]);
-          if (parseFloat(budget.payment_tax_rate) > 0) {
-            footerRows.push([
-              { content: `TOTAL COM JUROS (${budget.payment_tax_rate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-              { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic' } }
-            ]);
-          }
-        } else if (budget.payment_method === 'pix' && parseFloat(budget.payment_discount_rate) > 0) {
-          const discountedValue = calculateDiscountValue(budget);
-          footerRows.push([
-            { content: `CONDIÇÃO DE PAGAMENTO (PIX - ${budget.payment_discount_rate}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-            { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic' } }
-          ]);
-        }
-      }
-
-      const tableStartY = budget.vendedores ? 98 : 95;
-
       autoTable(doc, {
-        startY: tableStartY,
+        startY: tableStartY + 4,
         head: [['DESCRIÇÃO', 'AMBIENTE', 'QTD', 'VALOR UNIT.', 'VALOR TOTAL']],
         body: tableRows,
         theme: 'grid',
-        headStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
-        styles: { fontSize: 9, cellPadding: 2 },
+        headStyles: { fillColor: [21, 128, 61], textColor: 255, fontStyle: 'bold', halign: 'center' },
+        bodyStyles: { fontSize: 9, cellPadding: 2.5 },
+        alternateRowStyles: { fillColor: [249, 250, 251] },
         columnStyles: {
-          0: { cellWidth: 80 }, // Descrição
-          1: { cellWidth: 35 }, // Ambiente
-          2: { cellWidth: 15, halign: 'center' }, // Qtd
-          3: { cellWidth: 25, halign: 'right' }, // Unit
-          4: { cellWidth: 25, halign: 'right' }  // Total
+          0: { cellWidth: 80 },
+          1: { cellWidth: 32, halign: 'center' },
+          2: { cellWidth: 14, halign: 'center' },
+          3: { cellWidth: 27, halign: 'right' },
+          4: { cellWidth: 27, halign: 'right' },
         },
-        foot: footerRows
+        foot: buildPdfFooter(),
+        footStyles: { fontSize: 9 },
+        margin: { left: 14, right: 14 },
       });
+
+      // Rodapé com data de emissão
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(120, 120, 120);
+        doc.text(
+          `Emitido em ${new Date().toLocaleString('pt-BR')} · Página ${i} de ${pageCount}`,
+          105, 290, { align: 'center' },
+        );
+      }
 
       doc.save(`orcamento_${budget.numero_orcamento || budget.id}.pdf`);
     } catch (err) {
