@@ -163,10 +163,12 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       return;
     }
     const subtotal = precoUnit * (parseInt(acessorioAtual.quantity) || 1);
+    // acc.id é o UUID do produtos_acessorios. Mantém em ambos os campos
+    // (id + codigo) para compatibilidade com consumidores de cada schema.
     setItens(prev => [...prev, {
       id: `acc-${Date.now()}`,
       tipo: 'acessorio',
-      produto: { nome: acc.name, codigo: acc.id },
+      produto: { id: acc.id, nome: acc.name, codigo: acc.id },
       unit: acc.unit,
       color: acessorioAtual.color,
       quantity: parseInt(acessorioAtual.quantity) || 1,
@@ -253,12 +255,13 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
         }));
 
       const { data: { user } } = await supabase.auth.getUser();
-      // acessório: produto.codigo = UUID do produtos_acessorios (acc.id)
+      // acessório: produto.id = UUID do produtos_acessorios
       const cleanAccessories = itens
         .filter(i => i.tipo === 'acessorio')
         .map(i => ({
-          accessory_id: i.produto.codigo,
-          accessory: { id: i.produto.codigo, name: i.produto.nome, unit: i.unit, colors: [] },
+          accessory_id: i.produto.id,
+          name: i.produto.nome,
+          unit: i.unit,
           color: i.color,
           unit_price: i.unit_price,
           quantity: i.quantity,
@@ -647,7 +650,7 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                         </div>
                         <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
                           {isAcc
-                            ? `${i.color || '—'} · ${i.unit} · Qtd ${i.quantity}`
+                            ? `${i.color || '—'} · ${i.unit} · Qtd ${i.quantity} · R$ ${fmt(i.unit_price)}/${i.unit}`
                             : `${i.selection.largura}m × ${i.selection.altura}m · Qtd ${i.selection.quantidade}${customCount > 0 ? ` · ${customCount} custom.` : ''}`
                           }
                         </div>

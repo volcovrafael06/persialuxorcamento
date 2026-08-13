@@ -5,7 +5,7 @@ import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import './BudgetDetailsPage.css';
 import { supabase } from '../supabase/client';
-import { buildBudgetItemGroupKey, buildCustomerPdfDescription } from '../utils/budgetPresentation';
+import { buildBudgetItemGroupKey, buildCustomerPdfDescription, buildCustomerHtmlDescription } from '../utils/budgetPresentation';
 
 function BudgetDetailsPage({ companyLogo }) {
   const { budgetId } = useParams();
@@ -198,62 +198,17 @@ function BudgetDetailsPage({ companyLogo }) {
   };
 
   const formatProductDisplay = (product, item) => {
-    const inputWidth = item.input_width || item.inputWidth || item.largura;
-    const inputHeight = item.input_height || item.inputHeight || item.altura;
-    const dimensions = inputWidth && inputHeight ? `${parseFloat(inputWidth).toFixed(2)}m x ${parseFloat(inputHeight).toFixed(2)}m` : '';
-
-    const baseParts = [];
-    // Tenta encontrar o nome em vários lugares, incluindo item.product (que pode conter o objeto completo)
-    const nome = product.nome || product.name || item.produto?.nome || item.produto?.name || item.product?.nome || item.product?.name || item.nome || item.name || '';
-    
-    if (nome) baseParts.push(nome);
-    
-    if (item.painel && item.num_folhas) {
-      baseParts.push('PAINEL');
-    } else {
-      // Tenta encontrar o modelo em vários lugares
-      const modelo = product.modelo || item.produto?.modelo || item.product?.modelo || '';
-      if (modelo) baseParts.push(modelo);
+    const lines = buildCustomerHtmlDescription(product, item);
+    if (lines.length === 0) {
+      if (item.produto_id) lines.push(`Produto #${item.produto_id}`);
+      else lines.push('Produto sem nome');
     }
-    
-    // Tenta encontrar o tecido e código
-    const tecido = product.tecido || item.produto?.tecido || item.product?.tecido || '';
-    if (tecido) baseParts.push(tecido);
-    
-    const codigo = product.codigo || item.produto?.codigo || item.product?.codigo || '';
-    if (codigo) baseParts.push(codigo);
-
-    // Se ainda assim não tiver nada, tenta usar uma descrição genérica se possível
-    if (baseParts.length === 0) {
-        if (item.produto_id) baseParts.push(`Produto #${item.produto_id}`);
-        else baseParts.push('Produto sem nome');
-    }
-
-    const line1 = baseParts.join(' - ');
-
-    const line2Parts = [];
-    if (dimensions) line2Parts.push(dimensions);
-    if (item.bando) line2Parts.push('COM BANDO');
-    line2Parts.push(item.instalacao ? 'INSTALADO' : 'SEM INSTALAÇÃO');
-
-    // For panels with multiple sheets, add an extra line
-    let extraLine = null;
-    if (item.painel && item.num_folhas > 1 && inputWidth && inputHeight) {
-      const sheetWidth = (parseFloat(inputWidth) * 1.1 / item.num_folhas).toFixed(2);
-      const sheetHeight = parseFloat(inputHeight).toFixed(2);
-      extraLine = `Cada folha: ${sheetWidth}m x ${sheetHeight}m (${item.num_folhas} folhas)`;
-    }
-
-    const key = [line1, line2Parts.join(' - '), extraLine].filter(Boolean).join(' | ');
-
+    const key = lines.join(' | ');
     const display = (
       <div>
-        <div>{line1}</div>
-        <div>{line2Parts.join(' - ')}</div>
-        {extraLine && <div>{extraLine}</div>}
+        {lines.map((line, i) => <div key={i}>{line}</div>)}
       </div>
     );
-
     return { key, display };
   };
 
@@ -316,14 +271,16 @@ function BudgetDetailsPage({ companyLogo }) {
     if (acc && acc.length > 0) {
       const groupedAccessories = {};
       acc.forEach(item => {
-        const accessoryName = getAccessoryName(item.accessory_id);
-        const key = `${item.accessory_id}_${item.color}`;
+        // Usa o snapshot do nome (item.name) que veio do V2; cai pro lookup se faltar
+        const accessoryName = item.name || getAccessoryName(item.accessory_id);
+        const colorPart = item.color ? ` — ${item.color}` : '';
+        const key = `${item.accessory_id}_${item.color || ''}`;
         const unit = item.quantity && item.quantity > 0
           ? (Number(item.valor_total || item.subtotal || 0) / item.quantity)
           : Number(item.valor_total || item.subtotal || 0);
         if (!groupedAccessories[key]) {
           groupedAccessories[key] = {
-            description: accessoryName,
+            description: `${accessoryName}${colorPart}${item.unit ? `\n${item.unit}` : ''}`,
             quantity: item.quantity || 1,
             unitPrice: unit,
             totalPrice: Number(item.valor_total || item.subtotal || 0)
@@ -703,14 +660,16 @@ function BudgetDetailsPage({ companyLogo }) {
               {/* Group identical accessories too */}
               {budgetAccessories && budgetAccessories.length > 0 && (() => {
                 const groupedAccessories = {};
-                
+
                 budgetAccessories.forEach(item => {
-                  const accessoryName = getAccessoryName(item.accessory_id);
-                  const key = `${item.accessory_id}_${item.color}`;
-                  
+                  const accessoryName = item.name || getAccessoryName(item.accessory_id);
+                  const colorPart = item.color ? ` — ${item.color}` : '';
+                  const key = `${item.accessory_id}_${item.color || ''}`;
+
                   if (!groupedAccessories[key]) {
                     groupedAccessories[key] = {
-                      description: accessoryName,
+                      description: `${accessoryName}${colorPart}`,
+                      unit: item.unit || '',
                       quantity: item.quantity || 1,
                       unitPrice: item.quantity && item.quantity > 0 ? (Number(item.valor_total || item.subtotal || 0) / item.quantity) : Number(item.valor_total || item.subtotal || 0),
                       totalPrice: Number(item.valor_total || item.subtotal || 0)
@@ -720,10 +679,13 @@ function BudgetDetailsPage({ companyLogo }) {
                     groupedAccessories[key].totalPrice += Number(item.valor_total || item.subtotal || 0);
                   }
                 });
-                
+
                 return Object.values(groupedAccessories).map((group, index) => (
                   <tr key={`acc-${index}`}>
-                    <td className="description">{group.description}</td>
+                    <td className="description">
+                      <div>{group.description}</div>
+                      {group.unit && <div style={{ fontSize: '0.85em', color: '#6b7280' }}>{group.unit}</div>}
+                    </td>
                     <td className="environment">-</td>
                     <td className="quantity">{group.quantity}</td>
                     <td className="unit-price">{formatCurrency(group.unitPrice)}</td>
