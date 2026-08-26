@@ -27,11 +27,20 @@ export const buildCustomerPdfDescription = (product = {}, item = {}) => {
     productParts.push(fields.model);
   }
 
+  // Acionamento do modelo (D/E/X) — vem da seleção V2 (selection.acionamento)
+  const acionamento = item.acionamento
+    || item.selection?.acionamento
+    || product.acionamento
+    || '';
+  if (acionamento && !item.painel) {
+    productParts.push(`Acion: ${acionamento}`);
+  }
+
   if (fields.fabric) productParts.push(fields.fabric);
   if (fields.code) productParts.push(fields.code);
 
-  // Cor (vinda da cascata V2 ou cadastro)
-  const cor = item.cor || item.color;
+  // Cor (vinda da cascata V2, selection V2 ou cadastro)
+  const cor = item.cor || item.color || item.selection?.cor || '';
   if (cor) productParts.push(cor);
 
   const optionParts = [];
@@ -41,10 +50,13 @@ export const buildCustomerPdfDescription = (product = {}, item = {}) => {
   if (item.bando) optionParts.push('COM BANDO');
   if (item.trilho_tipo) optionParts.push(`TRILHO: ${item.trilho_tipo}`);
 
-  // Customização do seletor em cascata (V2)
+  // Customização do seletor em cascata (V2). Substitui underscores por espaço
+  // e capitaliza pra ficar legível.
   if (item.customizacao && typeof item.customizacao === 'object') {
     Object.entries(item.customizacao).forEach(([k, v]) => {
-      if (v) optionParts.push(`${k}: ${v}`);
+      if (!v) return;
+      const label = k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      optionParts.push(`${label}: ${v}`);
     });
   }
 

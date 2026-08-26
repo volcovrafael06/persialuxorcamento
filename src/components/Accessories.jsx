@@ -14,6 +14,9 @@ function Accessories() {
   const [newAccessory, setNewAccessory] = useState({
     name: '',
     unit: '',
+    fornecedor: '',
+    categoria: 'outros',
+    descricao: '',
     colors: []
   });
   const [newColor, setNewColor] = useState({
@@ -131,7 +134,10 @@ function Accessories() {
       const accessoryData = {
         name: newAccessory.name,
         unit: newAccessory.unit,
-        colors: newAccessory.colors
+        colors: newAccessory.colors,
+        fornecedor: newAccessory.fornecedor || null,
+        categoria: newAccessory.categoria || 'outros',
+        descricao: newAccessory.descricao || null,
       };
 
       if (editingAccessoryId) {
@@ -322,6 +328,49 @@ function Accessories() {
                   value={newAccessory.unit}
                   onChange={handleInputChange}
                   required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="fornecedor">Fornecedor:</label>
+                <input
+                  type="text"
+                  id="fornecedor"
+                  name="fornecedor"
+                  value={newAccessory.fornecedor || ''}
+                  onChange={handleInputChange}
+                  placeholder="Nome do fornecedor"
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="categoria">Categoria:</label>
+                <select
+                  id="categoria"
+                  name="categoria"
+                  value={newAccessory.categoria || 'outros'}
+                  onChange={handleInputChange}
+                >
+                  <option value="suporte">Suporte</option>
+                  <option value="trilho">Trilho</option>
+                  <option value="corrente">Corrente / Comando</option>
+                  <option value="perfil">Perfil / Bandô</option>
+                  <option value="instalacao">Instalação</option>
+                  <option value="tecido">Tecido extra</option>
+                  <option value="outros">Outros</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="descricao">Descrição:</label>
+                <textarea
+                  id="descricao"
+                  name="descricao"
+                  rows={2}
+                  value={newAccessory.descricao || ''}
+                  onChange={handleInputChange}
+                  placeholder="Detalhes do acessório (opcional)"
+                  style={{ resize: 'vertical' }}
                 />
               </div>
 

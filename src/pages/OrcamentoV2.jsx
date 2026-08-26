@@ -246,12 +246,22 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
 
   const adicionarAcessorio = () => {
     if (!acessorioAtual.id || !accSelecionadoInfo) return;
-    const { acc, precoUnit, corObj } = accSelecionadoInfo;
+    const { acc, precoUnit } = accSelecionadoInfo;
     if (precoUnit === 0) {
       alert(`O acessório "${acc.name}" não tem preço de venda cadastrado.\nCadastre o preço em Acessórios antes de adicionar ao orçamento.`);
       return;
     }
     const qty = qtyAcessorio(acessorioAtual.quantity);
+    if (qty <= 0) {
+      alert('Quantidade deve ser maior que zero.');
+      return;
+    }
+    // Confirmação visual: se cor não foi selecionada explicitamente e o acessório
+    // tem cores disponíveis, alerta o usuário (mas permite adicionar).
+    if (!acessorioAtual.color && (acc.colors || []).length > 0) {
+      const confirma = window.confirm(`Esse acessório tem cores disponíveis mas nenhuma foi selecionada.\nDeseja adicionar mesmo assim?`);
+      if (!confirma) return;
+    }
     const subtotal = precoUnit * qty;
     setItens(prev => [...prev, {
       id: `acc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -379,6 +389,14 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     }
     setSalvando(true);
     try {
+      const fmtCustomizacaoLabel = (k) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      const customizacaoTexto = (cust) => {
+        if (!cust || typeof cust !== 'object') return '';
+        return Object.entries(cust)
+          .filter(([, v]) => v)
+          .map(([k, v]) => `${fmtCustomizacaoLabel(k)}: ${v}`)
+          .join(' | ');
+      };
       const cleanProducts = itens
         .filter(i => i.tipo !== 'acessorio')
         .map(i => ({
@@ -401,7 +419,11 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
           trilho_tipo: '',
           painel: false,
           num_folhas: 1,
+          modelo: i.selection.modelo || '',
+          acionamento: i.selection.acionamento || '',
+          cor: i.selection.cor || '',
           customizacao: i.customizacao,
+          customizacao_texto: customizacaoTexto(i.customizacao),
           origem: 'cascata',
           selection: i.selection,
           subtotal: i.subtotal

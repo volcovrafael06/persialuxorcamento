@@ -297,6 +297,8 @@ function BudgetDetailsPage({ companyLogo }) {
             quantity: qty,
             unitPrice,
             totalPrice: subtotal,
+            isAccessory: true,
+            hasColor: Boolean(item.color),
           };
         } else {
           groupedAccessories[key].quantity += qty;
@@ -304,13 +306,21 @@ function BudgetDetailsPage({ companyLogo }) {
         }
       });
       Object.values(groupedAccessories).forEach(group => {
-        rows.push([
-          group.description,
+        // Marca a linha de acessório com prefixo visual [ACC] e usa textColor
+        // azul se tiver cor definida — diferencia de produto.
+        const prefix = '[AC] ';
+        const row = [
+          `${prefix}${group.description}`,
           '-',
           String(group.quantity),
           formatCurrency(group.unitPrice),
           formatCurrency(group.totalPrice),
-        ]);
+        ];
+        if (group.hasColor || group.isAccessory) {
+          // Marca a primeira célula em cinza-azulado (acessório)
+          row._isAccessory = true;
+        }
+        rows.push(row);
       });
     }
     return rows;
@@ -373,27 +383,8 @@ function BudgetDetailsPage({ companyLogo }) {
   // Adiciona logo + dados da empresa no canto superior direito.
   // Retorna a posição Y final pra próximo bloco (async — espera carregar o logo).
   const renderPdfHeader = async (doc) => {
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    let yPos = 15;
-    let yEnd = yPos;
-
-    if (companyData) {
-      const companyInfo = [
-        companyData.nome_fantasia,
-        companyData.endereco,
-        companyData.email,
-        `Tel: ${companyData.telefone}`,
-      ].filter(Boolean);
-      doc.setTextColor(60, 60, 60);
-      companyInfo.forEach(line => {
-        doc.text(line, 196, yPos, { align: 'right' });
-        yPos += 4.5;
-      });
-      yEnd = Math.max(yEnd, yPos);
-    }
-
-    // Logo: try/catch + timeout pra não falhar o PDF inteiro se estiver corrompido.
+    // Logo (esquerda, até 50x25mm no topo)
+    let yEnd = 32;
     if (companyLogo) {
       try {
         const logoData = await Promise.race([
@@ -406,20 +397,67 @@ function BudgetDetailsPage({ companyLogo }) {
       }
     }
 
-    return Math.max(yEnd, 32);
+    // Dados da empresa (canto direito) — nome fantasia, razão social, CNPJ,
+    // endereço, email, telefone. Pode ter até 6 linhas; ajustamos tamanho.
+    if (companyData) {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(60, 60, 60);
+
+      const lines = [];
+      if (companyData.nome_fantasia) lines.push(companyData.nome_fantasia);
+      if (companyData.razao_social && companyData.razao_social !== companyData.nome_fantasia) {
+        lines.push(companyData.razao_social);
+      }
+      if (companyData.cnpj) lines.push(`CNPJ: ${companyData.cnpj}`);
+      if (companyData.endereco) lines.push(companyData.endereco);
+      if (companyData.email) lines.push(companyData.email);
+      if (companyData.telefone) lines.push(`Tel: ${companyData.telefone}`);
+
+      let yPos = 12;
+      lines.forEach((line, idx) => {
+        // nome fantasia em negrito
+        if (idx === 0) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+        } else {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+        }
+        doc.text(line, 196, yPos, { align: 'right' });
+        yPos += idx === 0 ? 5 : 3.5;
+      });
+      yEnd = Math.max(yEnd, yPos);
+    }
+
+    doc.setTextColor(0, 0, 0);
+    return yEnd;
   };
 
   // Adiciona título + dados do cliente. Retorna Y após o bloco.
   const renderPdfTitleAndCustomer = (doc) => {
+    // Título do orçamento (verde escuro)
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(20, 83, 45); // verde escuro (mesmo verde da UI)
+    doc.setTextColor(20, 83, 45);
     doc.text(`Orçamento #${budget.numero_orcamento || budget.id}`, 14, 45);
     doc.setTextColor(0, 0, 0);
 
+    // Status badge (esquerda)
+    const statusLabel = { pendente: 'PENDENTE', finalizado: 'FINALIZADO', cancelado: 'CANCELADO' }[budget.status] || budget.status;
+    const statusColor = { pendente: [202, 138, 4], finalizado: [21, 128, 61], cancelado: [185, 28, 28] }[budget.status] || [100, 100, 100];
+    doc.setFillColor(...statusColor);
+    doc.roundedRect(140, 38, 56, 10, 1.5, 1.5, 'F');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text(statusLabel, 168, 45, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+
+    // Data, validade e vendedor
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString()}`, 14, 52);
+    doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString('pt-BR')}`, 14, 52);
     doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}`, 14, 57);
 
     let yAfterCustomer = 62;
@@ -430,22 +468,32 @@ function BudgetDetailsPage({ companyLogo }) {
 
     if (budget.clientes) {
       const clienteY = yAfterCustomer;
-      doc.setFillColor(239, 246, 255); // azul claro
-      doc.rect(14, clienteY, 182, 28, 'F');
+      // Caixa azul claro do cliente
+      doc.setFillColor(239, 246, 255);
+      doc.rect(14, clienteY, 182, 40, 'F');
       doc.setDrawColor(30, 64, 175);
       doc.setLineWidth(0.4);
-      doc.rect(14, clienteY, 182, 28);
+      doc.rect(14, clienteY, 182, 40);
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
       doc.text('DADOS DO CLIENTE', 16, clienteY + 6);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text(`Nome: ${budget.clientes.name}`, 16, clienteY + 12);
-      doc.text(`Endereço: ${budget.clientes.address || 'Não informado'}`, 16, clienteY + 18);
+
+      // Nome + CPF/CNPJ
+      const cpfCnpj = budget.clientes.cpf ? ` · CPF/CNPJ: ${budget.clientes.cpf}` : '';
+      doc.text(`Nome: ${budget.clientes.name}${cpfCnpj}`, 16, clienteY + 12);
+
+      // Endereço (até 80 chars)
+      const end = budget.clientes.address || 'Não informado';
+      const endLines = doc.splitTextToSize(`Endereço: ${end}`, 176);
+      doc.text(endLines, 16, clienteY + 18);
+
+      // Contato: phone | email
       const contact = [budget.clientes.phone, budget.clientes.email].filter(Boolean).join(' | ') || '—';
-      doc.text(`Contato: ${contact}`, 16, clienteY + 24);
-      yAfterCustomer = clienteY + 32;
+      doc.text(`Contato: ${contact}`, 16, clienteY + 30);
+      yAfterCustomer = clienteY + 44;
     }
     return yAfterCustomer;
   };
@@ -526,6 +574,15 @@ function BudgetDetailsPage({ companyLogo }) {
         foot: buildPdfFooter(),
         footStyles: { fontSize: 9 },
         margin: { left: 14, right: 14 },
+        // Colore linhas de acessório em fundo levemente azulado (distingue
+        // visualmente de produtos). Linhas marcadas com _isAccessory=true.
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row && data.row.raw && data.row.raw._isAccessory) {
+            data.cell.styles.fillColor = [219, 234, 254]; // azul claro
+            data.cell.styles.textColor = [30, 64, 175];    // azul escuro
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
       });
 
       // Observação do orçamento, se houver (última página).
