@@ -875,7 +875,12 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
             )}
           </div>
 
-          <ProductSelectorCascata initialProducts={products} onSelect={handleCascataSelect} />
+          <ProductSelectorCascata
+            initialProducts={products}
+            onSelect={handleCascataSelect}
+            initialSelection={editandoItemId && editandoItemId.startsWith('item-') ? (itemAtual?.selection || null) : null}
+            initialCustomizacao={editandoItemId && editandoItemId.startsWith('item-') ? (itemAtual?.customizacao || null) : null}
+          />
 
           {itemAtual && (
             <div style={{ marginTop: 16, padding: 20, background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: 8 }}>

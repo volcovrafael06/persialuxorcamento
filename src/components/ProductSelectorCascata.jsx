@@ -125,39 +125,23 @@ const normalizeColor = (c) => {
   return String(c).trim() || null;
 };
 
-function ProductSelectorCascata({ onSelect, initialProducts }) {
+function ProductSelectorCascata({ onSelect, initialProducts, initialSelection, initialCustomizacao }) {
   const [produtos, setProdutos] = useState(Array.isArray(initialProducts) ? initialProducts : []);
   const [loading, setLoading] = useState(!Array.isArray(initialProducts) || initialProducts.length === 0);
   const [error, setError] = useState(null);
 
   const [passo, setPasso] = useState(PASSO_DEFINICAO);
-  const [selection, setSelection] = useState({
-    linha: '',
-    grupo: '',
-    colecao: '',
-    cor: '',
-    produtoId: '',
-    modelo: '',
-    acionamento: '',
-    quantidade: 1,
-    largura: '',
-    altura: '',
-    tc: '',
-    ambiente: ''
-  });
+  const initialSelectState = {
+    linha: '', grupo: '', colecao: '', cor: '', produtoId: '',
+    modelo: '', acionamento: '', quantidade: 1, largura: '', altura: '', tc: '', ambiente: '',
+  };
+  const [selection, setSelection] = useState(() => ({ ...initialSelectState, ...(initialSelection || {}) }));
 
-  const [customizacao, setCustomizacao] = useState({
-    corComponentes: '',
-    perfilSuperior: '',
-    guiaLateral: '',
-    base: '',
-    comando: '',
-    corrente: '',
-    recorte: '',
-    rolamentoTecido: '',
-    modoInstalacao: '',
-    localInstalacao: ''
-  });
+  const initialCustomState = {
+    corComponentes: '', perfilSuperior: '', guiaLateral: '', base: '',
+    comando: '', corrente: '', recorte: '', rolamentoTecido: '', modoInstalacao: '', localInstalacao: '',
+  };
+  const [customizacao, setCustomizacao] = useState(() => ({ ...initialCustomState, ...(initialCustomizacao || {}) }));
 
   useEffect(() => {
     // Se initialProducts foi passado (modo preview/standalone), não recarregar
@@ -354,10 +338,23 @@ const podeAvancar = !!selection.linha
     && (selection.cor || !colecaoPossuiCores);
 
   const handleAvancar = () => {
-    if (podeAvancar) {
-      setPasso(PASSO_CUSTOMIZACAO);
-      onSelect?.({ selection, customizacao, produto: produtoSelecionado });
+    if (!podeAvancar) return;
+    // Validação de medidas com feedback amigável.
+    const w = parseFloat(selection.largura);
+    const h = parseFloat(selection.altura);
+    if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) {
+      alert('Informe largura e altura válidas (maiores que zero).');
+      return;
     }
+    const minW = Number(produtoSelecionado?.largura_minima) || 0;
+    const minH = Number(produtoSelecionado?.altura_minima) || 0;
+    const maxW = Number(produtoSelecionado?.largura_maxima) || 0;
+    if (minW > 0 && w < minW) { alert(`Largura mínima deste produto: ${minW}m`); return; }
+    if (minH > 0 && h < minH) { alert(`Altura mínima deste produto: ${minH}m`); return; }
+    if (maxW > 0 && w > maxW) { alert(`Largura máxima deste produto: ${maxW}m`); return; }
+
+    setPasso(PASSO_CUSTOMIZACAO);
+    onSelect?.({ selection, customizacao, produto: produtoSelecionado });
   };
 
   const handleVoltar = () => {
