@@ -544,11 +544,26 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   // Abre modal de pagamento antes de finalizar — calcula taxa/valor líquido.
   const handleFinalizar = async () => {
     if (!orcamentoId) {
-      alert('Salve o orçamento antes de finalizar.');
-      return;
+      // Salva o orçamento primeiro automaticamente antes de abrir o modal
+      const ok = window.confirm('O orçamento ainda não foi salvo.\nSalvar e abrir modal de pagamento agora?');
+      if (!ok) return;
+      try {
+        await handleSalvar();
+      } catch (err) {
+        alert('Falha ao salvar antes de finalizar: ' + (err.message || ''));
+        return;
+      }
     }
     if (orcamentoStatus === 'finalizado') {
       alert('Este orçamento já está finalizado.');
+      return;
+    }
+    if (itens.length === 0) {
+      alert('Adicione pelo menos um item antes de finalizar.');
+      return;
+    }
+    if (!clienteId) {
+      alert('Selecione um cliente antes de finalizar.');
       return;
     }
     // Carrega taxas (best-effort — se tabela não existir, segue sem).
@@ -1282,23 +1297,23 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
               </button>
               <button
                 onClick={handleFinalizar}
-                disabled={!orcamentoId || orcamentoStatus === 'finalizado' || finalizando}
+                disabled={orcamentoStatus === 'finalizado' || finalizando}
                 title={
-                  !orcamentoId
-                    ? 'Salve o orçamento antes de finalizar'
-                    : orcamentoStatus === 'finalizado'
+                  orcamentoStatus === 'finalizado'
                     ? 'Já finalizado'
+                    : !orcamentoId
+                    ? 'Salva o orçamento automaticamente e abre o modal de pagamento'
                     : 'Marca o orçamento como venda efetuada (Purchase)'
                 }
                 style={{
                   marginTop: 8,
                   width: '100%',
                   padding: '12px 20px',
-                  background: (!orcamentoId || orcamentoStatus === 'finalizado' || finalizando) ? '#e5e7eb' : '#15803d',
-                  color: (!orcamentoId || orcamentoStatus === 'finalizado' || finalizando) ? '#9ca3af' : 'white',
+                  background: (orcamentoStatus === 'finalizado' || finalizando) ? '#e5e7eb' : '#15803d',
+                  color: (orcamentoStatus === 'finalizado' || finalizando) ? '#9ca3af' : 'white',
                   border: 'none',
                   borderRadius: 6,
-                  cursor: (!orcamentoId || orcamentoStatus === 'finalizado' || finalizando) ? 'not-allowed' : 'pointer',
+                  cursor: (orcamentoStatus === 'finalizado' || finalizando) ? 'not-allowed' : 'pointer',
                   fontWeight: 600,
                   fontSize: 14
                 }}
@@ -1307,8 +1322,16 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                   ? 'Finalizando…'
                   : orcamentoStatus === 'finalizado'
                   ? '✓ Finalizado (Purchase enviado)'
+                  : !orcamentoId
+                  ? 'Salvar e Finalizar agora →'
                   : 'Finalizar agora (enviar Purchase)'}
               </button>
+
+              {!orcamentoId && (
+                <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4, textAlign: 'center' }}>
+                  💾 Será salvo automaticamente antes de finalizar.
+                </p>
+              )}
             </div>
           </div>
         </aside>
