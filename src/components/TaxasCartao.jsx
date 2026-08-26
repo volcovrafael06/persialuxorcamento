@@ -4,7 +4,7 @@
 // Migration já popula com seed padrão Brasil.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { taxaCartaoService, BANDEIRAS } from '../services/taxaCartaoService';
+import { taxaCartaoService, BANDEIRAS_CARTAO as BANDEIRAS } from '../services/taxaCartaoService';
 
 export default function TaxasCartao() {
   const [taxas, setTaxas] = useState([]);

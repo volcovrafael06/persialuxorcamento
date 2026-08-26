@@ -5,6 +5,7 @@ import '../components/ProductSelectorCascata.css';
 import { supabase } from '../supabase/client';
 import { clienteService } from '../services/clienteService';
 import { sendMetaEvent, persistMetaEventResult } from '../services/metaCapiService';
+import { taxaCartaoService, BANDEIRAS_CARTAO } from '../services/taxaCartaoService';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -45,6 +46,16 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   const [orcamentoId, setOrcamentoId] = useState(editBudgetId);
   const [orcamentoStatus, setOrcamentoStatus] = useState('rascunho');
   const [finalizando, setFinalizando] = useState(false);
+
+  // Modal de pagamento (cartão/PIX/boleto etc)
+  const [showPagamentoModal, setShowPagamentoModal] = useState(false);
+  const [formaPagamento, setFormaPagamento] = useState('credit_card'); // credit_card | pix | boleto | dinheiro | transferencia
+  const [bandeiraCartao, setBandeiraCartao] = useState('visa');
+  const [parcelasCartao, setParcelasCartao] = useState(1);
+  const [taxaAplicada, setTaxaAplicada] = useState(null); // { taxa_percentual, ativa } | null
+  const [valorLiquido, setValorLiquido] = useState(0); // valor final após taxa
+  const [taxasCartao, setTaxasCartao] = useState([]); // cache pra popular select de parcelas
+  const [descontoPixPct, setDescontoPixPct] = useState(5); // padrão 5% se não houver config
 
   // Cadastro inline de cliente
   const [mostrarFormCliente, setMostrarFormCliente] = useState(false);
@@ -493,7 +504,7 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     }
   };
 
-  // Finaliza o orçamento atual: UPDATE status='finalizado' + dispara Purchase.
+  // Abre modal de pagamento antes de finalizar — calcula taxa/valor líquido.
   const handleFinalizar = async () => {
     if (!orcamentoId) {
       alert('Salve o orçamento antes de finalizar.');
@@ -503,19 +514,68 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       alert('Este orçamento já está finalizado.');
       return;
     }
-    const ok = window.confirm('Marcar este orçamento como finalizado?\nIsso registrará uma conversão (Purchase) na Meta.');
-    if (!ok) return;
-    setFinalizando(true);
+    // Carrega taxas (best-effort — se tabela não existir, segue sem).
     try {
+      const lista = await taxaCartaoService.getAll();
+      setTaxasCartao(lista);
+    } catch (err) {
+      console.warn('[OrcamentoV2] falha ao carregar taxas:', err.message);
+      setTaxasCartao([]);
+    }
+    setShowPagamentoModal(true);
+  };
+
+  // Confirma o pagamento: salva forma + taxa no orcamento, finaliza, dispara Meta.
+  const handleConfirmarPagamento = async () => {
+    setFinalizando(true);
+    setShowPagamentoModal(false);
+    try {
+      // Recupera o orcamento atual do DB pra pegar valor_total
+      const { data: orcDb, error: orcErr } = await supabase
+        .from('orcamentos')
+        .select('*')
+        .eq('id', orcamentoId)
+        .single();
+      if (orcErr) throw orcErr;
+      const valorTotal = Number(orcDb.valor_total || orcDb.valor_negociado || 0);
+
+      let valorNegociado = valorTotal;
+      let payment_method = formaPagamento;
+      let payment_installments = null;
+      let payment_tax_rate = 0;
+      let payment_discount_rate = 0;
+
+      if (formaPagamento === 'credit_card') {
+        // Consulta a taxa da bandeira × parcelas
+        const taxa = await taxaCartaoService.getTaxa(bandeiraCartao, parcelasCartao);
+        const taxaPct = Number(taxa?.taxa_percentual) || 0;
+        payment_tax_rate = taxaPct;
+        payment_installments = parcelasCartao;
+        valorNegociado = valorTotal * (1 + taxaPct / 100); // com juros (se taxa > 0)
+      } else if (formaPagamento === 'pix') {
+        payment_discount_rate = descontoPixPct;
+        valorNegociado = valorTotal * (1 - descontoPixPct / 100);
+      }
+
+      // 1) UPDATE do orcamento com pagamento + finalizar
       const { data: updated, error } = await supabase
         .from('orcamentos')
-        .update({ status: 'finalizado', updated_at: new Date().toISOString() })
+        .update({
+          status: 'finalizado',
+          payment_method,
+          payment_installments: payment_installments || 1,
+          payment_tax_rate,
+          payment_discount_rate,
+          valor_negociado: valorNegociado,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', orcamentoId)
         .select()
         .single();
       if (error) throw error;
       setOrcamentoStatus('finalizado');
-      // Dispara Purchase pra Meta CAPI. Best-effort.
+
+      // 2) Dispara Purchase pra Meta CAPI com o valor LÍQUIDO
       try {
         const eventId = crypto.randomUUID();
         const metaResult = await sendMetaEvent({
@@ -532,7 +592,7 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       } catch (e) {
         console.warn('[meta-capi] erro ao enviar Purchase (não crítico):', e?.message || e);
       }
-      alert('Orçamento finalizado! Conversão disparada pra Meta.');
+      alert(`Orçamento finalizado!\nForma: ${formaPagamento === 'credit_card' ? `Cartão ${parcelasCartao}x ${bandeiraCartao}` : formaPagamento.toUpperCase()}\nValor final: R$ ${valorNegociado.toFixed(2)}`);
       navigate(`/budgets/${orcamentoId}/view`);
     } catch (err) {
       alert('Erro ao finalizar: ' + (err.message || 'desconhecido'));
@@ -540,6 +600,32 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       setFinalizando(false);
     }
   };
+
+  // Recalcula valor líquido sempre que forma de pgto / bandeira / parcelas mudam
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (formaPagamento === 'credit_card') {
+        const taxa = await taxaCartaoService.getTaxa(bandeiraCartao, parcelasCartao);
+        if (!cancelled) {
+          setTaxaAplicada(taxa);
+          const taxaPct = Number(taxa?.taxa_percentual) || 0;
+          setValorLiquido(total * (1 + taxaPct / 100));
+        }
+      } else if (formaPagamento === 'pix') {
+        if (!cancelled) {
+          setTaxaAplicada(null);
+          setValorLiquido(total * (1 - descontoPixPct / 100));
+        }
+      } else {
+        if (!cancelled) {
+          setTaxaAplicada(null);
+          setValorLiquido(total);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [formaPagamento, bandeiraCartao, parcelasCartao, descontoPixPct, total]);
 
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif' }}>
@@ -863,7 +949,27 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                         <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
                           {isAcc
                             ? `${i.color || '—'} · ${i.unit} · Qtd ${i.quantity} · R$ ${fmt(i.unit_price)}/${i.unit}`
-                            : `${i.selection.largura}m × ${i.selection.altura}m · Qtd ${i.selection.quantidade}${customCount > 0 ? ` · ${customCount} custom.` : ''}`
+                            : <>
+                                <div>{i.selection.largura}m × {i.selection.altura}m · Qtd {i.selection.quantidade}</div>
+                                {(i.selection.modelo || i.selection.acionamento) && (
+                                  <div style={{ marginTop: 2, color: '#4b5563' }}>
+                                    {i.selection.modelo && <span>Modelo: <strong>{i.selection.modelo}</strong></span>}
+                                    {i.selection.modelo && i.selection.acionamento && <span> · </span>}
+                                    {i.selection.acionamento && <span>Acion: <strong>{i.selection.acionamento}</strong></span>}
+                                  </div>
+                                )}
+                                {i.selection.cor && (
+                                  <div style={{ marginTop: 2 }}>Cor: <strong>{i.selection.cor}</strong></div>
+                                )}
+                                {customCount > 0 && (
+                                  <div style={{ marginTop: 2, color: '#6b7280', fontSize: 10 }}>
+                                    {Object.entries(i.customizacao || {})
+                                      .filter(([, v]) => v)
+                                      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+                                      .join(' | ')}
+                                  </div>
+                                )}
+                              </>
                           }
                         </div>
                       </div>
