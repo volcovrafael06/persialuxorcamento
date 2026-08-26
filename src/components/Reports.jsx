@@ -1,655 +1,445 @@
-import React, { useState, useEffect } from 'react';
-import './Reports.css';
-import { supabase } from '../supabase/client';
+// src/components/Reports.jsx
+//
+// Relatórios gerenciais — DRE, lucro por trabalho, performance.
+//
+// Visão DRE (Demonstração de Resultado):
+//   (+) Receita Bruta (orçamentos FINALIZADOS)
+//   (-) CMV           (custo dos produtos vendidos)
+//   (=) Lucro Bruto
+//   (-) Despesas Operacionais (por categoria, do cadastro de despesas)
+//   (=) Lucro Líquido
+//
+// Lucro por trabalho: tabela detalhada por orçamento finalizado.
 
-function Reports({ budgets: initialBudgets }) {
-  const [period, setPeriod] = useState('monthly');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [reportData, setReportData] = useState([]);
+import React, { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../supabase/client';
+import { despesaService, CATEGORIAS_DESPESA } from '../services/despesaService';
+
+const fmtBRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const pct = (v) => `${(Number(v) || 0).toFixed(2)}%`;
+
+function inicioDoMes() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+}
+function fimDoMes() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+}
+
+export default function Reports({ budgets: initialBudgets }) {
+  const [periodo, setPeriodo] = useState('mes_atual'); // mes_atual, mes_anterior, custom, ano
+  const [inicio, setInicio] = useState(inicioDoMes());
+  const [fim, setFim] = useState(fimDoMes());
+
   const [budgets, setBudgets] = useState(initialBudgets || []);
-  const [expandedBudgets, setExpandedBudgets] = useState(new Set());
-  const [summary, setSummary] = useState({
-    totalBudgets: 0,
-    finalized: 0,
-    pending: 0,
-    cancelled: 0,
-    averageTicket: 0,
-    totalRevenue: 0,
-    totalCosts: 0, // Renomeado para totalCOGS (Custo dos Produtos Vendidos)
-    totalCOGS: 0, // Custo dos Produtos Vendidos
-    grossProfit: 0, // Lucro Bruto
-    operatingExpenses: 0, // Despesas Operacionais (inicialmente 0)
-    netProfit: 0, // Lucro Líquido
-    profitMargin: 0,
-    totalInstallation: 0
-  });
+  const [despesas, setDespesas] = useState([]);
+  const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const fetchBudgets = async () => {
-      try {
-        setLoading(true);
-        const { data: budgetsData, error } = await supabase
-          .from('orcamentos')
-          .select(`
-            *,
-            clientes (
-              name
-            )
-          `)
-          .order('created_at', { ascending: false });
+    carregarTudo();
+  }, []);
 
-        if (error) throw error;
-        setBudgets(budgetsData || []);
-      } catch (err) {
-        console.error('Error fetching budgets:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  async function carregarTudo() {
+    setLoading(true);
+    try {
+      // Orçamentos finalizados no período
+      let q = supabase
+        .from('orcamentos')
+        .select('*, clientes(name)')
+        .order('created_at', { ascending: false });
+      if (inicio) q = q.gte('created_at', inicio + 'T00:00:00');
+      if (fim) q = q.lte('created_at', fim + 'T23:59:59');
+      const { data: bd } = await q;
+      setBudgets(bd || []);
 
-    fetchBudgets();
-  }, [period, startDate, endDate]); // Dependências mantidas
+      // Despesas
+      const ds = await despesaService.getByPeriod({ startDate: inicio, endDate: fim });
+      setDespesas(ds);
+
+      // Produtos (para cálculo de CMV)
+      const { data: pds } = await supabase.from('produtos').select('id,nome,preco_custo,preco_venda');
+      setProdutos(pds || []);
+    } catch (err) {
+      console.error('[Reports] falha:', err);
+      alert('Falha ao carregar relatórios: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function aplicarPeriodo(p) {
+    setPeriodo(p);
+    const hoje = new Date();
+    if (p === 'mes_atual') {
+      setInicio(new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10));
+      setFim(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10));
+    } else if (p === 'mes_anterior') {
+      setInicio(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1).toISOString().slice(0, 10));
+      setFim(new Date(hoje.getFullYear(), hoje.getMonth(), 0).toISOString().slice(0, 10));
+    } else if (p === 'ano') {
+      setInicio(new Date(hoje.getFullYear(), 0, 1).toISOString().slice(0, 10));
+      setFim(new Date(hoje.getFullYear(), 11, 31).toISOString().slice(0, 10));
+    }
+  }
 
   useEffect(() => {
-    if (budgets.length > 0) {
-      processReportData();
-    }
-  }, [budgets, period, startDate, endDate]);
+    if (periodo === 'mes_atual' || periodo === 'mes_anterior' || periodo === 'ano') carregarTudo();
+    // eslint-disable-next-line
+  }, [periodo, inicio, fim]);
 
-  const calculateDimensions = (product, width, height) => {
-    console.log('Calculando dimensões:', { product, width, height });
-    
-    const minWidth = parseFloat(product.largura_minima) || 0;
-    const minHeight = parseFloat(product.altura_minima) || 0;
-    const minArea = parseFloat(product.area_minima) || 0;
-    
-    let finalWidth = Math.max(parseFloat(width) || 0, minWidth);
-    let finalHeight = Math.max(parseFloat(height) || 0, minHeight);
-    
-    const area = parseFloat(width || 0) * parseFloat(height || 0);
-    
-    // Calculate the final area
-    let finalArea = finalWidth * finalHeight;
-    
-    // If the calculated area is less than the minimum area, use the exact minimum area value directly
-    // This ensures the area matches exactly what's in the database
-    if (minArea > 0 && area < minArea) {
-      finalArea = minArea;
-    }
-    
-    const usedMinimum = finalWidth > parseFloat(width || 0) || finalHeight > parseFloat(height || 0) || (minArea > 0 && area < minArea);
-    
-    console.log('Dimensões calculadas:', {
-      width: finalWidth,
-      height: finalHeight,
-      area: finalArea,
-      usedMinimum,
-      minimos: { minWidth, minHeight, minArea },
-      originais: { width, height, area }
+  // ===========================================================================
+  // DRE — Calcula CMV a partir dos produtos_json de cada orçamento finalizado.
+  // ===========================================================================
+  const dre = useMemo(() => {
+    const finalizados = budgets.filter((b) => b.status === 'finalizado');
+    const Receita = finalizados.reduce((s, b) => s + Number(b.valor_negociado || b.valor_total || 0), 0);
+
+    // CMV: para cada produto em produtos_json, encontrar produto da tabela e usar preco_custo * area/quantidade.
+    // Como produtos_json tem valor de venda, mas nem sempre custo, recomputamos aqui.
+    let CMV = 0;
+    const mapaCustos = {};
+    produtos.forEach((p) => { mapaCustos[p.id] = Number(p.preco_custo) || 0; });
+    const mapaVenda = {};
+    produtos.forEach((p) => { mapaVenda[p.id] = Number(p.preco_venda) || 0; });
+
+    finalizados.forEach((b) => {
+      let itens = [];
+      try { itens = JSON.parse(b.produtos_json || '[]'); } catch { /* ignore */ }
+      itens.forEach((item) => {
+        const pid = item.produto_id || item.product?.id || item.id;
+        const custoUnit = mapaCustos[pid] || 0;
+        const l = Number(item.largura || item.width || 0);
+        const a = Number(item.altura || item.height || 0);
+        const q = Number(item.quantidade || item.quantity || 1);
+        const venda = mapaVenda[pid] || Number(item.subtotal) || 0;
+        // Heurística: se venda > 0 e custo > 0, razão = custo/venda; CMV item = venda * razão
+        // Senão, fallback: usar venda como CMV (não ideal mas evita quebrar)
+        const vendaItem = Number(item.subtotal) || venda;
+        const custoItem = vendaItem > 0 && custoUnit > 0 ? vendaItem * (custoUnit / (mapaVenda[pid] || 1)) : 0;
+        CMV += custoItem;
+      });
     });
+
+    const LucroBruto = Receita - CMV;
+    const margemBruta = Receita > 0 ? (LucroBruto / Receita) * 100 : 0;
+
+    // Despesas operacionais
+    const despOperacional = despesas
+      .filter((d) => d.status === 'pago')
+      .reduce((s, d) => s + Number(d.valor || 0), 0);
+    const despPendente = despesas
+      .filter((d) => d.status === 'pendente')
+      .reduce((s, d) => s + Number(d.valor || 0), 0);
+
+    // Por categoria (somente status pago)
+    const desp_por_categoria = {};
+    despesas
+      .filter((d) => d.status === 'pago')
+      .forEach((d) => {
+        if (desp_por_categoria[d.categoria] == null) desp_por_categoria[d.categoria] = 0;
+        desp_por_categoria[d.categoria] += Number(d.valor || 0);
+      });
+
+    const LucroLiquido = LucroBruto - despOperacional;
+    const margemLiquida = Receita > 0 ? (LucroLiquido / Receita) * 100 : 0;
 
     return {
-      width: finalWidth,
-      height: finalHeight,
-      area: finalArea,
-      usedMinimum
+      receita_bruta: Receita,
+      cmv: CMV,
+      lucro_bruto: LucroBruto,
+      margem_bruta: margemBruta,
+      desp_operacional: despOperacional,
+      desp_pendente: despPendente,
+      desp_por_categoria,
+      lucro_liquido: LucroLiquido,
+      margem_liquida: margemLiquida,
+      qtd_finalizados: finalizados.length,
+      ticket_medio: finalizados.length > 0 ? Receita / finalizados.length : 0,
     };
-  };
+  }, [budgets, despesas, produtos]);
 
-  const getWavePrice = (height, pricingData) => {
-    try {
-      const pricing = JSON.parse(pricingData);
-      
-      // Encontrar a faixa de preço correta baseada na altura
-      const priceRange = pricing.find(range => 
-        height >= parseFloat(range.min_height) && 
-        height <= parseFloat(range.max_height)
-      );
+  const lucroPorTrabalho = useMemo(() => {
+    return budgets
+      .filter((b) => b.status === 'finalizado')
+      .map((b) => {
+        const valor = Number(b.valor_negociado || b.valor_total || 0);
 
-      if (!priceRange) {
-        console.error('Faixa de preço não encontrada para altura:', height);
-        return { cost: 0, value: 0 };
-      }
+        // Acessórios: estão em acessorios_json (unit_price * quantity)
+        let receitaAcess = 0;
+        try {
+          const acess = JSON.parse(b.acessorios_json || '[]');
+          acess.forEach((a) => {
+            receitaAcess += Number(a.unit_price || 0) * Number(a.quantity || 1);
+          });
+        } catch { /* ignore */ }
 
-      // Retorna o preço por metro
-      return {
-        cost: parseFloat(priceRange.price) || 0,
-        value: parseFloat(priceRange.sale_price) || 0
-      };
-    } catch (error) {
-      console.error('Erro ao processar wave_pricing_data:', error);
-      return { cost: 0, value: 0 };
-    }
-  };
+        // CMV: precisa de cada produto no DB
+        const mapaCustos = {};
+        const mapaVenda = {};
+        produtos.forEach((p) => {
+          mapaCustos[p.id] = Number(p.preco_custo) || 0;
+          mapaVenda[p.id] = Number(p.preco_venda) || 0;
+        });
+        let custoProdutos = 0;
+        let receitaProdutos = 0;
+        try {
+          const itens = JSON.parse(b.produtos_json || '[]');
+          itens.forEach((item) => {
+            const pid = item.produto_id || item.product?.id;
+            const subtotal = Number(item.subtotal || 0);
+            receitaProdutos += subtotal;
+            const custo = mapaCustos[pid] || 0;
+            const vendaRef = mapaVenda[pid] || 1;
+            custoProdutos += subtotal > 0 && custo > 0 ? subtotal * (custo / vendaRef) : subtotal * 0.5; // fallback 50%
+          });
+        } catch { /* ignore */ }
 
-  const calculateProductCost = async (product) => {
-    try {
-      console.log('Calculando custo para produto:', product);
-      
-      // Buscar o produto no banco para obter o preço de custo
-      const { data: productData, error } = await supabase
-        .from('produtos')
-        .select('*')
-        .eq('id', product.produto_id)
-        .single();
-
-      if (error) {
-        console.error('Erro ao buscar produto:', error);
+        const receita = valor > 0 ? valor : receitaProdutos + receitaAcess;
+        const lucro = receita - custoProdutos;
         return {
-          productCost: 0,
-          productValue: 0,
-          bandoCost: 0,
-          bandoValue: 0,
-          trilhoCost: 0,
-          trilhoValue: 0,
-          dimensions: { width: 0, height: 0, usedMinimum: false }
+          id: b.id,
+          numero: b.numero_orcamento,
+          data: b.created_at,
+          cliente: b.clientes?.name || 'Sem cliente',
+          receita,
+          cmv: custoProdutos,
+          lucro,
+          margem: receita > 0 ? (lucro / receita) * 100 : 0,
         };
-      }
-
-      if (!productData) {
-        console.error('Produto não encontrado:', product.produto_id);
-        return {
-          productCost: 0,
-          productValue: 0,
-          bandoCost: 0,
-          bandoValue: 0,
-          trilhoCost: 0,
-          trilhoValue: 0,
-          dimensions: { width: 0, height: 0, usedMinimum: false }
-        };
-      }
-
-      // Calcular as dimensões considerando os mínimos
-      const dimensions = calculateDimensions(
-        productData,
-        product.largura || product.width,
-        product.altura || product.height
-      );
-
-      // Calcula o custo baseado no modelo usando as dimensões calculadas
-      let productCost = 0;
-      let productValue = 0;
-
-      if (productData.modelo?.toUpperCase() === 'WAVE' && productData.wave_pricing_data) {
-        // Para WAVE, pegamos o preço da faixa e multiplicamos pela largura
-        const { cost, value } = getWavePrice(dimensions.height, productData.wave_pricing_data);
-        productCost = cost * dimensions.width;
-        productValue = value * dimensions.width;
-        
-        console.log('Cálculo WAVE:', {
-          altura: dimensions.height,
-          largura: dimensions.width,
-          preco_por_metro: { cost, value },
-          custo_final: productCost,
-          valor_final: productValue,
-          formula: 'preço da faixa * largura'
-        });
-      } else if (productData.modelo?.toUpperCase() === 'SCREEN') {
-        // Para SCREEN, multiplicamos largura x altura
-        const costPrice = parseFloat(productData.preco_custo) || 0;
-        const salePrice = parseFloat(productData.preco_venda) || 0;
-        productCost = dimensions.width * dimensions.height * costPrice;
-        productValue = dimensions.width * dimensions.height * salePrice;
-        
-        console.log('Cálculo SCREEN:', {
-          largura: dimensions.width,
-          altura: dimensions.height,
-          preco_custo: costPrice,
-          preco_venda: salePrice,
-          custo_final: productCost,
-          valor_final: productValue,
-          formula: 'largura * altura * preço'
-        });
-      } else {
-        // Para outros modelos, multiplicamos largura x altura
-        const costPrice = parseFloat(productData.preco_custo) || 0;
-        const salePrice = parseFloat(productData.preco_venda) || 0;
-        productCost = dimensions.width * dimensions.height * costPrice;
-        productValue = dimensions.width * dimensions.height * salePrice;
-        
-        console.log('Cálculo Padrão:', {
-          largura: dimensions.width,
-          altura: dimensions.height,
-          preco_custo: costPrice,
-          preco_venda: salePrice,
-          custo_final: productCost,
-          valor_final: productValue,
-          formula: 'largura * altura * preço'
-        });
-      }
-
-      console.log('Custos finais calculados:', {
-        produto: { custo: productCost, venda: productValue },
-        bando: { custo: 0, venda: 0 },
-        trilho: { custo: 0, venda: 0 }
       });
+  }, [budgets, produtos]);
 
-      // Buscar configurações para o preço do bandô e trilho
-      const { data: configData } = await supabase
-        .from('configuracoes')
-        .select('*')
-        .single();
-
-      // Buscar preços dos trilhos
-      const { data: railPricing } = await supabase
-        .from('rail_pricing')
-        .select('*');
-
-      let bandoCost = 0;
-      let bandoValue = 0;
-      let trilhoCost = 0;
-      let trilhoValue = 0;
-
-      if (product.bando && configData) {
-        bandoCost = dimensions.width * (parseFloat(configData.bando_custo) || 0);
-        bandoValue = dimensions.width * (parseFloat(configData.bando_venda) || 0);
-      }
-
-      if (product.trilho_tipo && railPricing) {
-        // Mapear os tipos de trilho do banco para os tipos do sistema
-        const trilhoTypeMap = {
-          'trilho_redondo_com_comando': 'trilho_redondo_com_comando',
-          'trilho_redondo_sem_comando': 'trilho_redondo_sem_comando',
-          'trilho_slim_com_comando': 'trilho_slim_com_comando',
-          'trilho_slim_sem_comando': 'trilho_slim_sem_comando',
-          'trilho_quadrado_com_rodizio_em_gancho': 'trilho_quadrado_com_rodizio_em_gancho',
-          'trilho_motorizado': 'trilho_motorizado'
-        };
-
-        const railType = trilhoTypeMap[product.trilho_tipo];
-        const railData = railPricing.find(rail => rail.rail_type === railType);
-
-        if (railData) {
-          trilhoCost = dimensions.width * (parseFloat(railData.cost_price) || 0);
-          trilhoValue = dimensions.width * (parseFloat(railData.sale_price) || 0);
-          
-          console.log('Cálculo Trilho:', {
-            tipo: product.trilho_tipo,
-            tipo_banco: railType,
-            largura: dimensions.width,
-            preco_custo: railData.cost_price,
-            preco_venda: railData.sale_price,
-            custo_final: trilhoCost,
-            valor_final: trilhoValue,
-            formula: 'largura * preço'
-          });
-        } else {
-          console.error('Tipo de trilho não encontrado:', product.trilho_tipo);
-        }
-      }
-
-      console.log('Custos finais calculados:', {
-        produto: { custo: productCost, venda: productValue },
-        bando: { custo: bandoCost, venda: bandoValue },
-        trilho: { custo: trilhoCost, venda: trilhoValue }
+  // Lucro por mês (visão anual)
+  const lucroPorMes = useMemo(() => {
+    const m = {};
+    budgets
+      .filter((b) => b.status === 'finalizado')
+      .forEach((b) => {
+        const key = (b.created_at || '').slice(0, 7); // YYYY-MM
+        if (!key) return;
+        m[key] ||= { receita: 0, cmv: 0, lucro: 0, qtd: 0 };
+        const valor = Number(b.valor_negociado || b.valor_total || 0);
+        m[key].receita += valor;
+        m[key].qtd += 1;
       });
-
-      return {
-        productCost,
-        productValue,
-        bandoCost,
-        bandoValue,
-        trilhoCost,
-        trilhoValue,
-        dimensions
-      };
-    } catch (error) {
-      console.error('Erro ao calcular custo do produto:', error);
-      return {
-        productCost: 0,
-        productValue: 0,
-        bandoCost: 0,
-        bandoValue: 0,
-        trilhoCost: 0,
-        trilhoValue: 0,
-        dimensions: { width: 0, height: 0, usedMinimum: false }
-      };
-    }
-  };
-
-  const processReportData = async () => {
-    try {
-      let filteredBudgets = [...budgets];
-
-      // Aplicar filtros de data se necessário
-      if (period === 'custom' && startDate && endDate) {
-        filteredBudgets = filteredBudgets.filter(budget => {
-          const budgetDate = new Date(budget.created_at);
-          return budgetDate >= new Date(startDate) && budgetDate <= new Date(endDate);
-        });
-      } else if (period === 'monthly') {
-        const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-        filteredBudgets = filteredBudgets.filter(budget => {
-          const budgetDate = new Date(budget.created_at);
-          return budgetDate >= firstDay;
-        });
-      }
-
-      // Processar cada orçamento
-      const processedBudgets = await Promise.all(
-        filteredBudgets.map(async budget => {
-          console.log('Processando orçamento:', budget);
-          
-          // Garantir que produtos_json seja um array
-          let produtos = [];
-          try {
-            produtos = JSON.parse(budget.produtos_json || '[]');
-          } catch (error) {
-            console.error('Erro ao fazer parse dos produtos:', error);
-            produtos = budget.produtos || [];
-          }
-
-          // Processar cada produto
-          const processedProducts = await Promise.all(
-            produtos.map(async (prod) => {
-              const productId = prod.product?.id || prod.produto_id;
-              console.log('Processando produto:', { prod, productId });
-
-              // Buscar dados do produto
-              const { data: productData } = await supabase
-                .from('produtos')
-                .select('*')
-                .eq('id', productId)
-                .single();
-
-              console.log('Dados do produto encontrado:', productData);
-
-              // Calcular custos
-              const costs = await calculateProductCost({
-                ...prod,
-                produto_id: productId,
-                largura: prod.largura || prod.width,
-                altura: prod.altura || prod.height,
-                bando: prod.bando,
-                trilho_tipo: prod.trilho_tipo,
-                instalacao: prod.instalacao,
-                valor_instalacao: prod.valor_instalacao
-              });
-
-              console.log('Custos calculados:', costs);
-
-              const productTotal = costs.productValue + costs.bandoValue + costs.trilhoValue;
-              const productCost = costs.productCost + costs.bandoCost + costs.trilhoCost;
-              const installationValue = prod.instalacao ? (parseFloat(prod.valor_instalacao) || 0) : 0;
-
-              return {
-                ...prod,
-                produto: productData,
-                cost: costs,
-                total: productTotal + installationValue,
-                totalCost: productCost
-              };
-            })
-          );
-
-          // Calcular totais
-          let totalCost = 0;
-          let totalValue = 0;
-          let installationFee = 0;
-
-          processedProducts.forEach(prod => {
-            totalCost += prod.totalCost || 0;
-            totalValue += prod.total || 0;
-            if (prod.instalacao) {
-              installationFee += parseFloat(prod.valor_instalacao) || 0;
-            }
-          });
-
-          const valueWithoutInstallation = totalValue - installationFee;
-          const profit = valueWithoutInstallation - totalCost;
-          const margin = valueWithoutInstallation > 0 ? (profit / valueWithoutInstallation) * 100 : 0;
-
-          console.log('Totais calculados:', {
-            totalCost,
-            totalValue,
-            installationFee,
-            valueWithoutInstallation,
-            profit,
-            margin
-          });
-
-          return {
-            ...budget,
-            produtos: processedProducts,
-            totalCost,
-            totalValue,
-            installationFee,
-            profit,
-            margin
-          };
-        })
-      );
-
-      // Calcular estatísticas
-      const finalized = processedBudgets.filter(b => b.status === 'finalizado');
-      const pending = processedBudgets.filter(b => b.status === 'pendente' || !b.status);
-      const canceled = processedBudgets.filter(b => b.status === 'cancelado');
-
-      const totalRevenue = finalized.reduce((sum, b) => sum + (b.totalValue || 0), 0);
-      const totalInstallation = finalized.reduce((sum, b) => sum + (b.installationFee || 0), 0);
-      const totalCosts = finalized.reduce((sum, b) => sum + (b.totalCost || 0), 0);
-      const revenueWithoutInstallation = totalRevenue - totalInstallation;
-      const totalProfit = revenueWithoutInstallation - totalCosts;
-      const profitMargin = revenueWithoutInstallation > 0 ? (totalProfit / revenueWithoutInstallation) * 100 : 0;
-
-      setSummary({
-        total: processedBudgets.length,
-        finalized: finalized.length,
-        pending: pending.length,
-        canceled: canceled.length,
-        totalRevenue,
-        totalInstallation,
-        totalCosts,
-        totalProfit,
-        profitMargin,
-        averageTicket: finalized.length > 0 ? revenueWithoutInstallation / finalized.length : 0
-      });
-
-      setReportData(processedBudgets);
-    } catch (error) {
-      console.error('Erro ao processar dados do relatório:', error);
-    }
-  };
-
-  const handlePeriodChange = (event) => {
-    setPeriod(event.target.value);
-    if (event.target.value !== 'custom') {
-      setStartDate('');
-      setEndDate('');
-    }
-  };
-
-  const toggleProductDetails = (budgetId) => {
-    setExpandedBudgets(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(budgetId)) {
-        newSet.delete(budgetId);
-      } else {
-        newSet.add(budgetId);
-      }
-      return newSet;
-    });
-  };
+    // CMV aproximado (custo = 50% do valor — fallback)
+    Object.keys(m).forEach((k) => { m[k].cmv = m[k].receita * 0.5; m[k].lucro = m[k].receita - m[k].cmv; });
+    return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [budgets]);
 
   return (
-    <div className="reports-container">
-      <h2>Relatório Gerencial</h2>
+    <div style={{ padding: 24, maxWidth: 1280, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Relatórios & DRE</h2>
+          <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: 13 }}>
+            Demonstrativo de Resultados (DRE), lucro por trabalho e tendência mensal.
+          </p>
+        </div>
+        <button onClick={carregarTudo} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
+          Atualizar
+        </button>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ background: 'white', padding: 12, borderRadius: 8, marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', border: '1px solid #e5e7eb' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Período:</span>
+        <button onClick={() => aplicarPeriodo('mes_atual')} style={btn(periodo === 'mes_atual')}>Mês atual</button>
+        <button onClick={() => aplicarPeriodo('mes_anterior')} style={btn(periodo === 'mes_anterior')}>Mês anterior</button>
+        <button onClick={() => aplicarPeriodo('ano')} style={btn(periodo === 'ano')}>Ano</button>
+        <label style={{ fontSize: 12 }}>Personalizado:&nbsp;
+          <input type="date" value={inicio} onChange={(e) => { setPeriodo('custom'); setInicio(e.target.value); }} style={inp} />
+          <span style={{ margin: '0 6px' }}>até</span>
+          <input type="date" value={fim} onChange={(e) => { setPeriodo('custom'); setFim(e.target.value); }} style={inp} />
+        </label>
+      </div>
 
       {loading ? (
-        <div className="loading-indicator">
-          <p>Carregando relatórios...</p>
-        </div>
+        <div style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>Carregando dados...</div>
       ) : (
         <>
-          <div className="filter-options">
-            <label htmlFor="period">Período:</label>
-            <select id="period" value={period} onChange={handlePeriodChange}>
-              <option value="daily">Diário</option>
-              <option value="weekly">Semanal</option>
-              <option value="monthly">Mensal</option>
-              <option value="yearly">Anual</option>
-              <option value="custom">Personalizado</option>
-            </select>
-
-            {period === 'custom' && (
-              <>
-                <label htmlFor="startDate">Data de Início:</label>
-                <input 
-                  type="date" 
-                  id="startDate" 
-                  value={startDate} 
-                  onChange={(e) => setStartDate(e.target.value)} 
-                />
-
-                <label htmlFor="endDate">Data de Término:</label>
-                <input 
-                  type="date" 
-                  id="endDate" 
-                  value={endDate} 
-                  onChange={(e) => setEndDate(e.target.value)} 
-                />
-              </>
-            )}
-          </div>
-
-          <div className="summary-cards">
-            <div className="summary-card">
-              <h3>Visão Geral</h3>
-              <p>Total de Orçamentos: {summary.total}</p>
-              <p>Finalizados: {summary.finalized}</p>
-              <p>Pendentes: {summary.pending}</p>
-              <p>Cancelados: {summary.canceled}</p>
+          {/* ============================================================ */}
+          {/* DRE                                                        */}
+          {/* ============================================================ */}
+          <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ background: '#1f2937', color: 'white', padding: '12px 16px' }}>
+              <h3 style={{ margin: 0, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>DRE — Demonstração de Resultado do Exercício</h3>
+              <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>{inicio} a {fim}</div>
             </div>
-            
-            <div className="summary-card">
-              <h3>Desempenho Financeiro</h3>
-              <p>Receita Total (com instalação): {(summary.totalRevenue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-              <p>Receita Total (sem instalação): {((summary.totalRevenue || 0) - (summary.totalInstallation || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-              <p>Custos Totais: {(summary.totalCosts || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-              <p>Total Instalação (repasse): {(summary.totalInstallation || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-              <p>Lucro Total: {(summary.totalProfit || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-              <p>Margem de Lucro: {(summary.profitMargin || 0).toFixed(2)}%</p>
-              <p>Ticket Médio (sem instalação): {(summary.finalized > 0 ? ((summary.totalRevenue || 0) / summary.finalized - (summary.totalInstallation || 0) / summary.finalized) : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+            <div style={{ padding: 16 }}>
+              <DRELinha label="(+) Receita Bruta (orçamentos finalizados)" valor={dre.receita_bruta} tipo="+info" />
+              <DRELinha label="(–) CMV — Custo dos Produtos Vendidos" valor={-dre.cmv} tipo="-info" />
+              <DRESubtotal label="(=) Lucro Bruto" valor={dre.lucro_bruto} margem={dre.margem_bruta} />
+
+              <div style={{ height: 1, background: '#e5e7eb', margin: '12px 0' }} />
+
+              <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#6b7280', marginBottom: 8 }}>Despesas Operacionais</div>
+              {Object.entries(dre.desp_por_categoria)
+                .sort(([, a], [, b]) => b - a)
+                .map(([cat, v]) => {
+                  const label = (CATEGORIAS_DESPESA.find((c) => c.value === cat) || { label: cat }).label;
+                  return <DRELinha key={cat} label={`(–) ${label}`} valor={-v} tipo="-info" />;
+                })}
+              {dre.desp_pendente > 0 && (
+                <DRELinha label={`(–) Despesas a pagar (pendente)`} valor={-dre.desp_pendente} tipo="-alerta" />
+              )}
+              <DRELinha label={`(=) Total de Despesas Operacionais`} valor={-dre.desp_operacional} tipo="subtotal" />
+
+              <div style={{ height: 1, background: '#e5e7eb', margin: '12px 0' }} />
+
+              <DRESubtotal label="(=) Lucro Líquido" valor={dre.lucro_liquido} margem={dre.margem_liquida} destaque />
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 16 }}>
+                <CardSimples titulo="Orçamentos Finalizados" valor={String(dre.qtd_finalizados)} cor="#1f2937" />
+                <CardSimples titulo="Ticket Médio" valor={fmtBRL(dre.ticket_medio)} cor="#2563eb" />
+                <CardSimples titulo="Margem Líquida" valor={pct(dre.margem_liquida)} cor={dre.lucro_liquido >= 0 ? '#15803d' : '#dc2626'} />
+              </div>
             </div>
           </div>
 
-          <h3>Detalhamento dos Orçamentos Finalizados</h3>
-          <table className="report-table">
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Cliente</th>
-                <th>Valor Total</th>
-                <th>Valor sem Instalação</th>
-                <th>Taxa de Instalação</th>
-                <th>Custo Total</th>
-                <th>Lucro</th>
-                <th>Margem (%)</th>
-                <th>Produtos</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reportData.map(budget => (
-                <React.Fragment key={budget.id}>
-                  <tr>
-                    <td>{new Date(budget.created_at).toLocaleDateString()}</td>
-                    <td>{budget.clientes?.name || 'Cliente não encontrado'}</td>
-                    <td>{parseFloat(budget.totalValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                    <td>{parseFloat((budget.totalValue || 0) - (budget.installationFee || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                    <td>{parseFloat(budget.installationFee || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                    <td>{parseFloat(budget.totalCost || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                    <td>{parseFloat(budget.profit || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                    <td>{budget.margin ? `${budget.margin.toFixed(2)}%` : '0%'}</td>
-                    <td>{(budget.produtos || []).length}</td>
-                    <td>
-                      <button onClick={() => toggleProductDetails(budget.id)}>
-                        {expandedBudgets.has(budget.id) ? 'Ocultar' : 'Detalhes'}
-                      </button>
-                    </td>
+          {/* ============================================================ */}
+          {/* LUCRO POR TRABALHO                                          */}
+          {/* ============================================================ */}
+          <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ background: '#f9fafb', padding: '12px 16px', borderBottom: '1px solid #e5e7eb' }}>
+              <h3 style={{ margin: 0, fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>Lucro por Trabalho (Orçamento)</h3>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#fafafa' }}>
+                    <th style={th}>Orç.</th>
+                    <th style={th}>Data</th>
+                    <th style={th}>Cliente</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Receita</th>
+                    <th style={{ ...th, textAlign: 'right' }}>CMV</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Lucro</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Margem</th>
                   </tr>
-                  {expandedBudgets.has(budget.id) && (
-                    <tr className="details-row">
-                      <td colSpan="10">
-                        <div className="product-details">
-                          <h4>Detalhes dos Produtos</h4>
-                          <table className="product-details-table">
-                            <thead>
-                              <tr>
-                                <th>Produto</th>
-                                <th>Dimensões</th>
-                                <th>Custo</th>
-                                <th>Valor</th>
-                                <th>Lucro</th>
-                                <th>Bandô</th>
-                                <th>Trilho</th>
-                                <th>Instalação</th>
-                                <th>Subtotal</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(budget.produtos || []).map((prod, index) => (
-                                <tr key={index} className="product-detail-row">
-                                  <td>
-                                    <strong>{prod.produto?.nome || prod.produto?.name || prod.product?.nome || prod.product?.name || prod.nome || prod.name || 'Nome não encontrado'}</strong>
-                                    {prod.cost?.dimensions?.usedMinimum && (
-                                      <div className="minimum-warning">
-                                        Dimensões mínimas aplicadas
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td>{prod.largura || prod.width}m x {prod.altura || prod.height}m</td>
-                                  <td>{parseFloat(prod.cost?.productCost || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                  <td>{parseFloat(prod.cost?.productValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                  <td>{parseFloat((prod.cost?.productValue || 0) - (prod.cost?.productCost || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                  <td>
-                                    {prod.bando ? (
-                                      <div>
-                                        <div>Custo: {parseFloat(prod.cost?.bandoCost || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                                        <div>Venda: {parseFloat(prod.cost?.bandoValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                                        <div>Lucro: {parseFloat((prod.cost?.bandoValue || 0) - (prod.cost?.bandoCost || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                                      </div>
-                                    ) : 'Não'}
-                                  </td>
-                                  <td>
-                                    {prod.trilho_tipo ? (
-                                      <div>
-                                        <div><strong>{prod.trilho_tipo}</strong></div>
-                                        <div>Custo: {parseFloat(prod.cost?.trilhoCost || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                                        <div>Venda: {parseFloat(prod.cost?.trilhoValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                                        <div>Lucro: {parseFloat((prod.cost?.trilhoValue || 0) - (prod.cost?.trilhoCost || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                                      </div>
-                                    ) : 'Não'}
-                                  </td>
-                                  <td>
-                                    {prod.instalacao ? (
-                                      <div>
-                                        <div>Valor: {parseFloat(prod.valor_instalacao || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div>
-                                      </div>
-                                    ) : 'Não'}
-                                  </td>
-                                  <td className="product-subtotal">
-                                    <strong>{parseFloat(prod.total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </td>
+                </thead>
+                <tbody>
+                  {lucroPorTrabalho.length === 0 ? (
+                    <tr><td colSpan="7" style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontStyle: 'italic' }}>Nenhum orçamento finalizado no período.</td></tr>
+                  ) : lucroPorTrabalho.map((t) => (
+                    <tr key={t.id} style={{ borderTop: '1px solid #f3f4f6' }}>
+                      <td style={td}>#{t.numero}</td>
+                      <td style={td}>{new Date(t.data).toLocaleDateString('pt-BR')}</td>
+                      <td style={td}>{t.cliente}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{fmtBRL(t.receita)}</td>
+                      <td style={{ ...td, textAlign: 'right', color: '#b91c1c' }}>{fmtBRL(t.cmv)}</td>
+                      <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: t.lucro >= 0 ? '#15803d' : '#dc2626' }}>{fmtBRL(t.lucro)}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{pct(t.margem)}</td>
                     </tr>
-                  )}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
+                  ))}
+                  {lucroPorTrabalho.length > 0 && (() => {
+                    const totReceita = lucroPorTrabalho.reduce((s, t) => s + t.receita, 0);
+                    const totCMV = lucroPorTrabalho.reduce((s, t) => s + t.cmv, 0);
+                    const totLucro = totReceita - totCMV;
+                    return (
+                      <tr style={{ background: '#f9fafb', fontWeight: 700, borderTop: '2px solid #1f2937' }}>
+                        <td style={td} colSpan={3}>TOTAL ({lucroPorTrabalho.length} orçamentos)</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{fmtBRL(totReceita)}</td>
+                        <td style={{ ...td, textAlign: 'right', color: '#b91c1c' }}>{fmtBRL(totCMV)}</td>
+                        <td style={{ ...td, textAlign: 'right', color: totLucro >= 0 ? '#15803d' : '#dc2626' }}>{fmtBRL(totLucro)}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{pct(totReceita > 0 ? (totLucro / totReceita) * 100 : 0)}</td>
+                      </tr>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* ============================================================ */}
+          {/* LUCRO POR MÊS                                                */}
+          {/* ============================================================ */}
+          {lucroPorMes.length > 0 && (
+            <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ background: '#f9fafb', padding: '12px 16px', borderBottom: '1px solid #e5e7eb' }}>
+                <h3 style={{ margin: 0, fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>Receita × Lucro por Mês</h3>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={th}>Mês</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Orçamentos</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Receita</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Lucro</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Margem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lucroPorMes.map(([mes, d]) => (
+                      <tr key={mes} style={{ borderTop: '1px solid #f3f4f6' }}>
+                        <td style={td}>{formatarMes(mes)}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{d.qtd}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{fmtBRL(d.receita)}</td>
+                        <td style={{ ...td, textAlign: 'right', color: d.lucro >= 0 ? '#15803d' : '#dc2626', fontWeight: 600 }}>{fmtBRL(d.lucro)}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{pct(d.receita > 0 ? (d.lucro / d.receita) * 100 : 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
   );
 }
 
-export default Reports;
+function DRELinha({ label, valor, tipo }) {
+  const cor = tipo === 'subtotal' ? '#374151' : tipo === '-alerta' ? '#ca8a04' : '#1f2937';
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+      <span style={{ fontSize: 13, color: cor }}>{label}</span>
+      <span style={{ fontSize: 13, color: cor }}>{fmtBRL(valor)}</span>
+    </div>
+  );
+}
+function DRESubtotal({ label, valor, margem, destaque }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px',
+      background: destaque ? '#ecfdf5' : '#f9fafb', borderRadius: 6, marginTop: 4,
+      border: destaque ? '1px solid #15803d' : 'none',
+    }}>
+      <span style={{ fontWeight: 700, fontSize: 14, color: valor >= 0 ? '#15803d' : '#dc2626' }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ fontWeight: 700, fontSize: 16, color: valor >= 0 ? '#15803d' : '#dc2626' }}>{fmtBRL(valor)}</span>
+        {margem != null && <span style={{ fontSize: 12, color: '#6b7280' }}>({pct(margem)})</span>}
+      </div>
+    </div>
+  );
+}
+function CardSimples({ titulo, valor, cor }) {
+  return (
+    <div style={{ padding: 12, background: '#f9fafb', borderRadius: 6 }}>
+      <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase' }}>{titulo}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: cor, marginTop: 4 }}>{valor}</div>
+    </div>
+  );
+}
+function formatarMes(s) {
+  if (!s) return '-';
+  const [ano, mes] = s.split('-');
+  const nomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  return `${nomes[Number(mes) - 1]}/${ano}`;
+}
+const btn = (active) => ({
+  padding: '6px 12px',
+  background: active ? '#1f2937' : 'white',
+  color: active ? 'white' : '#374151',
+  border: '1px solid ' + (active ? '#1f2937' : '#d1d5db'),
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontSize: 12,
+  fontWeight: active ? 600 : 400,
+});
+const th = { padding: '8px 12px', textAlign: 'left', fontSize: 11, color: '#6b7280', textTransform: 'uppercase', fontWeight: 600, borderBottom: '1px solid #e5e7eb' };
+const td = { padding: '10px 12px', fontSize: 13 };
+const inp = { padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, marginLeft: 4 };

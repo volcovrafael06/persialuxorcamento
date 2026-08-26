@@ -12,6 +12,8 @@ import Configuracoes from './components/Configuracoes';
 import BudgetDetailsPage from './components/BudgetDetailsPage';
 import HomePage from './components/HomePage';
 import VisitScheduler from './components/VisitScheduler';
+import Despesas from './components/Despesas';
+import TaxasCartao from './components/TaxasCartao';
 import ProductSelectorCascataTest from './pages/ProductSelectorCascataTest';
 import OrcamentoV2 from './pages/OrcamentoV2';
 import ConnectionStatus from './components/ConnectionStatus';
@@ -300,7 +302,11 @@ function App() {
             <li className="nav-item"><NavLink to="/orcamento-v2" className="nav-link"><span className="icon">✨</span><span className="text">Orçamento v2</span></NavLink></li>
             <li className="nav-item"><NavLink to="/reports" className="nav-link"><span className="icon">📊</span><span className="text">Relatórios</span></NavLink></li>
             <li className="nav-item"><NavLink to="/visits" className="nav-link"><span className="icon">📅</span><span className="text">Visitas</span></NavLink></li>
-            {isAdmin && <li className="nav-item"><NavLink to="/configuracoes" className="nav-link"><span className="icon">⚙️</span><span className="text">Configurações</span></NavLink></li>}
+            {isAdmin && <>
+              <li className="nav-item"><NavLink to="/despesas" className="nav-link"><span className="icon">💸</span><span className="text">Despesas</span></NavLink></li>
+              <li className="nav-item"><NavLink to="/taxas-cartao" className="nav-link"><span className="icon">💳</span><span className="text">Taxas de Cartão</span></NavLink></li>
+              <li className="nav-item"><NavLink to="/configuracoes" className="nav-link"><span className="icon">⚙️</span><span className="text">Configurações</span></NavLink></li>
+            </>}
             <li className="nav-item"><button onClick={handleLogout} className="nav-link logout-button"><span className="icon">🚪</span><span className="text">Sair</span></button></li>
           </ul>
         </nav>
@@ -322,6 +328,8 @@ function App() {
           <Route path="/budgets/:budgetId/view" element={<BudgetDetailsPage companyLogo={companyLogo} />} />
           <Route path="/reports" element={<Reports budgets={budgets} customers={customers} />} />
           <Route path="/visits" element={<VisitScheduler visits={visits} setVisits={setVisits} />} />
+          <Route path="/despesas" element={isAdmin ? <Despesas /> : <div>Acesso restrito</div>} />
+          <Route path="/taxas-cartao" element={isAdmin ? <TaxasCartao /> : <div>Acesso restrito</div>} />
           <Route path="/configuracoes" element={isAdmin ? <Configuracoes setCompanyLogo={setCompanyLogo} /> : <div>Acesso restrito</div>} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
