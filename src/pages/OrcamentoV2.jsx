@@ -85,8 +85,28 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   }, [customers]);
 
   useEffect(() => {
-    if (accessories && accessories.length > 0) setAcessoriosDisponiveis(accessories);
+    // Sincroniza sempre (mesmo se vazio) — sem essa condição, o useState
+    // inicial congela em [] quando accessories chega vazio no primeiro render
+    // (cache local não populado, IndexedDB vazio, ou props não chegou ainda).
+    if (Array.isArray(accessories)) setAcessoriosDisponiveis(accessories);
   }, [accessories]);
+
+  // Fallback: se ainda assim a lista estiver vazia e o cache local existir,
+  // tenta carregar do localDB.produtos_acessorios direto.
+  useEffect(() => {
+    let cancelado = false;
+    if (acessoriosDisponiveis.length > 0) return;
+    (async () => {
+      try {
+        const { localDB } = await import('../services/localDatabase');
+        const locais = await localDB.getAll('produtos_acessorios');
+        if (!cancelado && Array.isArray(locais) && locais.length > 0) {
+          setAcessoriosDisponiveis(locais);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelado = true; };
+  }, [acessoriosDisponiveis.length]);
 
   // Modo edição: carregar orçamento existente via ?budgetId=... na URL.
   useEffect(() => {
@@ -723,13 +743,13 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
               <button onClick={() => setShowPagamentoModal(false)} disabled={finalizando}
                 style={{ padding: '10px 16px', background: 'white', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}>Cancelar</button>
               <button onClick={handleConfirmarPagamento}
-                disabled={finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)}
+                disabled={finalizando}
                 style={{
                   padding: '10px 20px',
-                  background: (finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)) ? '#e5e7eb' : '#15803d',
-                  color: (finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)) ? '#9ca3af' : 'white',
+                  background: finalizando ? '#e5e7eb' : '#15803d',
+                  color: finalizando ? '#9ca3af' : 'white',
                   border: 'none', borderRadius: 6,
-                  cursor: (finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)) ? 'not-allowed' : 'pointer',
+                  cursor: finalizando ? 'not-allowed' : 'pointer',
                   fontWeight: 600,
                 }}>{finalizando ? 'Finalizando…' : 'Confirmar e Finalizar'}</button>
             </div>
