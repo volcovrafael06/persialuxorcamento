@@ -255,17 +255,22 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
         }));
 
       const { data: { user } } = await supabase.auth.getUser();
-      // acessório: produto.id = UUID do produtos_acessorios
+      // acessório: produto.id = UUID do produtos_acessorios.
+      // Persistimos 'valor_total' (= subtotal) para casar com a leitura que o
+      // BudgetDetailsPage faz ('valor_total || subtotal'). Adicionamos também
+      // 'unit' explicitamente, e mantemos 'color' mesmo quando vazio (string),
+      // evitando que o PDF renderize 'undefined'.
       const cleanAccessories = itens
         .filter(i => i.tipo === 'acessorio')
         .map(i => ({
           accessory_id: i.produto.id,
           name: i.produto.nome,
-          unit: i.unit,
-          color: i.color,
-          unit_price: i.unit_price,
-          quantity: i.quantity,
-          subtotal: i.subtotal
+          unit: i.unit || '',
+          color: typeof i.color === 'string' ? i.color : '',
+          unit_price: Number(i.unit_price) || 0,
+          quantity: Number(i.quantity) || 1,
+          subtotal: Number(i.subtotal) || 0,
+          valor_total: Number(i.subtotal) || 0,
         }));
 
       const { data, error } = await supabase

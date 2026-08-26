@@ -271,23 +271,29 @@ function BudgetDetailsPage({ companyLogo }) {
     if (acc && acc.length > 0) {
       const groupedAccessories = {};
       acc.forEach(item => {
-        // Usa o snapshot do nome (item.name) que veio do V2; cai pro lookup se faltar
+        // Snapshot do nome (OrcamentoV2 grava 'name'); cai pro lookup no DB se faltar
         const accessoryName = item.name || getAccessoryName(item.accessory_id);
         const colorPart = item.color ? ` — ${item.color}` : '';
+        const unitPart = item.unit ? `\n(${item.unit})` : '';
+        // unit_price: prioriza o que foi gravado (V2 grava unit_price direto);
+        // cai pra subtotal/qtd apenas se unit_price for inválido ou zero e qtd > 0
+        let unitPrice = Number(item.unit_price) || 0;
+        const qty = Number(item.quantity) || 1;
+        const subtotal = Number(item.valor_total || item.subtotal || 0);
+        if ((!unitPrice || unitPrice === 0) && qty > 0 && subtotal > 0) {
+          unitPrice = subtotal / qty;
+        }
         const key = `${item.accessory_id}_${item.color || ''}`;
-        const unit = item.quantity && item.quantity > 0
-          ? (Number(item.valor_total || item.subtotal || 0) / item.quantity)
-          : Number(item.valor_total || item.subtotal || 0);
         if (!groupedAccessories[key]) {
           groupedAccessories[key] = {
-            description: `${accessoryName}${colorPart}${item.unit ? `\n${item.unit}` : ''}`,
-            quantity: item.quantity || 1,
-            unitPrice: unit,
-            totalPrice: Number(item.valor_total || item.subtotal || 0)
+            description: `${accessoryName}${colorPart}${unitPart}`,
+            quantity: qty,
+            unitPrice,
+            totalPrice: subtotal,
           };
         } else {
-          groupedAccessories[key].quantity += (item.quantity || 1);
-          groupedAccessories[key].totalPrice += Number(item.valor_total || item.subtotal || 0);
+          groupedAccessories[key].quantity += qty;
+          groupedAccessories[key].totalPrice += subtotal;
         }
       });
       Object.values(groupedAccessories).forEach(group => {
@@ -296,7 +302,7 @@ function BudgetDetailsPage({ companyLogo }) {
           '-',
           String(group.quantity),
           formatCurrency(group.unitPrice),
-          formatCurrency(group.totalPrice)
+          formatCurrency(group.totalPrice),
         ]);
       });
     }
@@ -358,17 +364,13 @@ function BudgetDetailsPage({ companyLogo }) {
   // ---------- PDF generation ----------
 
   // Adiciona logo + dados da empresa no canto superior direito.
-  // Retorna a posição Y final pra próximo bloco.
-  const renderPdfHeader = (doc) => {
-    if (companyLogo) {
-      // try/catch pra não falhar o PDF inteiro se o logo estiver corrompido
-      getDataUri(companyLogo).then(logoData => {
-        if (logoData) doc.addImage(logoData, 'PNG', 14, 10, 50, 25);
-      });
-    }
+  // Retorna a posição Y final pra próximo bloco (async — espera carregar o logo).
+  const renderPdfHeader = async (doc) => {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     let yPos = 15;
+    let yEnd = yPos;
+
     if (companyData) {
       const companyInfo = [
         companyData.nome_fantasia,
@@ -376,11 +378,28 @@ function BudgetDetailsPage({ companyLogo }) {
         companyData.email,
         `Tel: ${companyData.telefone}`,
       ].filter(Boolean);
+      doc.setTextColor(60, 60, 60);
       companyInfo.forEach(line => {
         doc.text(line, 196, yPos, { align: 'right' });
         yPos += 4.5;
       });
+      yEnd = Math.max(yEnd, yPos);
     }
+
+    // Logo: try/catch + timeout pra não falhar o PDF inteiro se estiver corrompido.
+    if (companyLogo) {
+      try {
+        const logoData = await Promise.race([
+          getDataUri(companyLogo),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+        ]);
+        if (logoData) doc.addImage(logoData, 'PNG', 14, 10, 50, 25);
+      } catch (err) {
+        console.warn('[PDF] logo não carregou, segue sem:', err?.message);
+      }
+    }
+
+    return Math.max(yEnd, 32);
   };
 
   // Adiciona título + dados do cliente. Retorna Y após o bloco.
@@ -474,7 +493,7 @@ function BudgetDetailsPage({ companyLogo }) {
   const handleDownloadPDF = async () => {
     try {
       const doc = new jsPDF();
-      renderPdfHeader(doc);
+      const headerEndY = await renderPdfHeader(doc);
       const tableStartY = renderPdfTitleAndCustomer(doc);
 
       const tableRows = buildPdfRows().map(row => {
@@ -483,7 +502,7 @@ function BudgetDetailsPage({ companyLogo }) {
       });
 
       autoTable(doc, {
-        startY: tableStartY + 4,
+        startY: Math.max(headerEndY, tableStartY) + 6,
         head: [['DESCRIÇÃO', 'AMBIENTE', 'QTD', 'VALOR UNIT.', 'VALOR TOTAL']],
         body: tableRows,
         theme: 'grid',
@@ -502,15 +521,30 @@ function BudgetDetailsPage({ companyLogo }) {
         margin: { left: 14, right: 14 },
       });
 
-      // Rodapé com data de emissão
+      // Observação do orçamento, se houver (última página).
       const pageCount = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
+      if (budget?.observacao && String(budget.observacao).trim()) {
+        // Posiciona no rodapé da última página.
+        const last = pageCount;
+        const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 240;
+        doc.setPage(last);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text('OBSERVAÇÕES:', 14, finalY + 10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(60, 60, 60);
+        doc.text(doc.splitTextToSize(String(budget.observacao), 180), 14, finalY + 16);
+      }
+
+      // Rodapé de paginação
+      const finalPageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= finalPageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(8);
         doc.setFont('helvetica', 'italic');
         doc.setTextColor(120, 120, 120);
         doc.text(
-          `Emitido em ${new Date().toLocaleString('pt-BR')} · Página ${i} de ${pageCount}`,
+          `Emitido em ${new Date().toLocaleString('pt-BR')} · Página ${i} de ${finalPageCount}`,
           105, 290, { align: 'center' },
         );
       }
