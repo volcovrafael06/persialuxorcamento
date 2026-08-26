@@ -247,7 +247,6 @@ function FormDespesa({ inicial, onSalvar, onCancelar }) {
     nota_fiscal: '',
     observacao: '',
     ...(inicial || {}),
-    valor: inicial?.valor ?? '',
   }));
   const [salvando, setSalvando] = useState(false);
 

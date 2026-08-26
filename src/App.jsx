@@ -14,6 +14,8 @@ import HomePage from './components/HomePage';
 import VisitScheduler from './components/VisitScheduler';
 import Despesas from './components/Despesas';
 import TaxasCartao from './components/TaxasCartao';
+import ContasPagar from './components/ContasPagar';
+import ContasReceber from './components/ContasReceber';
 import ProductSelectorCascataTest from './pages/ProductSelectorCascataTest';
 import OrcamentoV2 from './pages/OrcamentoV2';
 import ConnectionStatus from './components/ConnectionStatus';
@@ -305,6 +307,8 @@ function App() {
             {isAdmin && <>
               <li className="nav-item"><NavLink to="/despesas" className="nav-link"><span className="icon">💸</span><span className="text">Despesas</span></NavLink></li>
               <li className="nav-item"><NavLink to="/taxas-cartao" className="nav-link"><span className="icon">💳</span><span className="text">Taxas de Cartão</span></NavLink></li>
+              <li className="nav-item"><NavLink to="/contas-pagar" className="nav-link"><span className="icon">📤</span><span className="text">Contas a Pagar</span></NavLink></li>
+              <li className="nav-item"><NavLink to="/contas-receber" className="nav-link"><span className="icon">📥</span><span className="text">Contas a Receber</span></NavLink></li>
               <li className="nav-item"><NavLink to="/configuracoes" className="nav-link"><span className="icon">⚙️</span><span className="text">Configurações</span></NavLink></li>
             </>}
             <li className="nav-item"><button onClick={handleLogout} className="nav-link logout-button"><span className="icon">🚪</span><span className="text">Sair</span></button></li>
@@ -330,6 +334,8 @@ function App() {
           <Route path="/visits" element={<VisitScheduler visits={visits} setVisits={setVisits} />} />
           <Route path="/despesas" element={isAdmin ? <Despesas /> : <div>Acesso restrito</div>} />
           <Route path="/taxas-cartao" element={isAdmin ? <TaxasCartao /> : <div>Acesso restrito</div>} />
+          <Route path="/contas-pagar" element={isAdmin ? <ContasPagar /> : <div>Acesso restrito</div>} />
+          <Route path="/contas-receber" element={isAdmin ? <ContasReceber /> : <div>Acesso restrito</div>} />
           <Route path="/configuracoes" element={isAdmin ? <Configuracoes setCompanyLogo={setCompanyLogo} /> : <div>Acesso restrito</div>} />
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

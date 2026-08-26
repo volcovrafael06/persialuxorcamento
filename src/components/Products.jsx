@@ -18,6 +18,10 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
     largura_minima: '',
     largura_maxima: '',
     area_minima: '',
+    fornecedor: '',
+    prazo_pagamento_dias: '',
+    prazo_recebimento_dias: '',
+    condicao_pagamento: '',
   };
 
   const [products, setProducts] = useState(externalProducts || []);
@@ -54,7 +58,11 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
       ? (typeof item.wave_pricing_data === 'string'
           ? JSON.parse(item.wave_pricing_data)
           : item.wave_pricing_data)
-      : initialProductState.wave_pricing
+      : initialProductState.wave_pricing,
+    fornecedor: item.fornecedor || '',
+    prazo_pagamento_dias: item.prazo_pagamento_dias ?? '',
+    prazo_recebimento_dias: item.prazo_recebimento_dias ?? '',
+    condicao_pagamento: item.condicao_pagamento || '',
   });
 
   // Mantém o estado local em sincronia com o estado global (App.jsx).
@@ -82,7 +90,11 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
     largura_maxima: item.largura_maxima ?? (item.largura_maxima === '' ? null : item.largura_maxima),
     area_minima: item.area_minima ?? (item.area_minima === '' ? null : item.area_minima),
     wave_pricing_data: item.wave_pricing_data
-      ?? (item.wave_pricing ? JSON.stringify(item.wave_pricing) : null)
+      ?? (item.wave_pricing ? JSON.stringify(item.wave_pricing) : null),
+    fornecedor: item.fornecedor ?? null,
+    prazo_pagamento_dias: item.prazo_pagamento_dias === '' ? null : Number(item.prazo_pagamento_dias || 0) || null,
+    prazo_recebimento_dias: item.prazo_recebimento_dias === '' ? null : Number(item.prazo_recebimento_dias || 0) || null,
+    condicao_pagamento: item.condicao_pagamento || null,
   });
 
   const updateProducts = (next) => {
@@ -706,6 +718,65 @@ function Products({ products: externalProducts, setProducts: setExternalProducts
                     <option value="m2">Metro Quadrado (m²)</option>
                     <option value="altura">Altura</option>
                   </select>
+                </div>
+
+                {/* ==== SEÇÃO FINANCEIRA (FORNECEDOR + PRAZOS) ==== */}
+                <div className="form-section-divider" style={{ gridColumn: '1 / -1', margin: '12px 0 6px', borderTop: '1px solid #e5e7eb', paddingTop: 8 }}>
+                  <strong style={{ fontSize: 13, color: '#374151' }}>Dados Financeiros</strong>
+                  <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 8 }}>Fornecedor, prazos de pagamento e recebimento</span>
+                </div>
+
+                <div className="form-group">
+                  <label>Fornecedor:</label>
+                  <input
+                    type="text"
+                    name="fornecedor"
+                    value={newProduct.fornecedor || ''}
+                    onChange={handleInputChange}
+                    placeholder="Nome do fornecedor"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Condição de Pagamento:</label>
+                  <select name="condicao_pagamento" value={newProduct.condicao_pagamento || ''} onChange={handleInputChange}>
+                    <option value="">—</option>
+                    <option value="avista">À vista</option>
+                    <option value="7_ddl">7 DDL</option>
+                    <option value="14_ddl">14 DDL</option>
+                    <option value="21_ddl">21 DDL</option>
+                    <option value="28_ddl">28 DDL</option>
+                    <option value="30_ddl">30 DDL</option>
+                    <option value="45_ddl">45 DDL</option>
+                    <option value="60_ddl">60 DDL</option>
+                    <option value="90_ddl">90 DDL</option>
+                    <option value="120_ddl">120 DDL</option>
+                    <option value="personalizado">Personalizado</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Prazo Pgto (dias):</label>
+                  <input
+                    type="number"
+                    name="prazo_pagamento_dias"
+                    value={newProduct.prazo_pagamento_dias ?? ''}
+                    onChange={handleInputChange}
+                    placeholder="Ex: 30"
+                    min="0"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Prazo Recebimento (dias):</label>
+                  <input
+                    type="number"
+                    name="prazo_recebimento_dias"
+                    value={newProduct.prazo_recebimento_dias ?? ''}
+                    onChange={handleInputChange}
+                    placeholder="Ex: 28"
+                    min="0"
+                  />
                 </div>
 
                 {newProduct.model.toUpperCase() === 'WAVE' ? (
