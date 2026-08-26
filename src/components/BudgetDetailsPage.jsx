@@ -243,17 +243,24 @@ function BudgetDetailsPage({ companyLogo }) {
       const productDetails = getProductDetails(item.produto_id);
       const description = buildCustomerPdfDescription(productDetails, item);
       const key = buildBudgetItemGroupKey(productDetails, item);
+      const quantidade = Number(item.quantidade || item.quantity || 1) || 1;
+      const subtotal = Number(item.valor_total || item.subtotal || 0);
+      const unitPrice = quantidade > 0 ? subtotal / quantidade : subtotal;
       if (!groupedProducts[key]) {
         groupedProducts[key] = {
           description,
           environment: item.ambiente || '-',
-          quantity: 1,
-          unitPrice: Number(item.valor_total || item.subtotal || 0),
-          totalPrice: Number(item.valor_total || item.subtotal || 0)
+          quantity: quantidade,
+          unitPrice,
+          totalPrice: subtotal,
         };
       } else {
-        groupedProducts[key].quantity += 1;
-        groupedProducts[key].totalPrice += Number(item.valor_total || item.subtotal || 0);
+        groupedProducts[key].quantity += quantidade;
+        groupedProducts[key].totalPrice += subtotal;
+        groupedProducts[key].unitPrice =
+          groupedProducts[key].quantity > 0
+            ? groupedProducts[key].totalPrice / groupedProducts[key].quantity
+            : groupedProducts[key].totalPrice;
       }
     });
 

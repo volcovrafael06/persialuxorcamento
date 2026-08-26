@@ -29,6 +29,9 @@ function calcSubtotal(produto, largura, altura, qty) {
 
 function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   const navigate = useNavigate();
+  const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const editBudgetId = params.get('budgetId') || null;
+
   const [clienteId, setClienteId] = useState('');
   const [clientes, setClientes] = useState(customers || []);
   const [acessoriosDisponiveis, setAcessoriosDisponiveis] = useState(accessories || []);
@@ -36,9 +39,10 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   const [itemAtual, setItemAtual] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [observacao, setObservacao] = useState('');
+  const [carregandoOrcamento, setCarregandoOrcamento] = useState(!!editBudgetId);
 
   // ID do orçamento já persistido no banco. Permite "Finalizar orçamento" depois de salvar.
-  const [orcamentoId, setOrcamentoId] = useState(null);
+  const [orcamentoId, setOrcamentoId] = useState(editBudgetId);
   const [orcamentoStatus, setOrcamentoStatus] = useState('rascunho');
   const [finalizando, setFinalizando] = useState(false);
 
@@ -48,6 +52,9 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   const [salvandoCliente, setSalvandoCliente] = useState(false);
   const [erroCliente, setErroCliente] = useState('');
   const [infoClientes, setInfoClientes] = useState(null);
+
+  // Edição
+  const [editandoItemId, setEditandoItemId] = useState(null);
 
   // Acessório em construção
   const [acessorioAtual, setAcessorioAtual] = useState({
@@ -69,6 +76,76 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   useEffect(() => {
     if (accessories && accessories.length > 0) setAcessoriosDisponiveis(accessories);
   }, [accessories]);
+
+  // Modo edição: carregar orçamento existente via ?budgetId=... na URL.
+  useEffect(() => {
+    if (!editBudgetId) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const { data: orc, error } = await supabase
+          .from('orcamentos')
+          .select('*, clientes(*)')
+          .eq('id', editBudgetId)
+          .maybeSingle();
+        if (error) throw error;
+        if (!orc || cancelado) return;
+        setClienteId(orc.cliente_id || '');
+        setObservacao(orc.observacao || '');
+        setOrcamentoStatus(orc.status || 'pendente');
+        // Montar itens do produto
+        let produtosJson = orc.produtos_json;
+        if (typeof produtosJson === 'string') {
+          try { produtosJson = JSON.parse(produtosJson); } catch { produtosJson = []; }
+        }
+        let acessoriosJson = orc.acessorios_json;
+        if (typeof acessoriosJson === 'string') {
+          try { acessoriosJson = JSON.parse(acessoriosJson); } catch { acessoriosJson = []; }
+        }
+        const itensCarregados = [];
+        (produtosJson || []).forEach((item) => {
+          const prod = item.produto || products.find((p) => p.id === (item.produto_id || item.id));
+          if (!prod) return;
+          itensCarregados.push({
+            id: `item-${item.produto_id || item.id}`,
+            tipo: 'produto',
+            produto: prod,
+            selection: item.selection || {
+              largura: item.input_width || item.largura || '',
+              altura: item.input_height || item.altura || '',
+              quantidade: item.quantidade || 1,
+              ambiente: item.ambiente || '',
+              cor: item.cor || '',
+              produtoId: item.produto_id,
+              modelo: item.modelo || '',
+              acionamento: item.acionamento || '',
+            },
+            customizacao: item.customizacao || {},
+            subtotal: Number(item.subtotal || item.valor_total || 0),
+          });
+        });
+        (acessoriosJson || []).forEach((a) => {
+          itensCarregados.push({
+            id: `acc-${a.accessory_id || a.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            tipo: 'acessorio',
+            produto: { id: a.accessory_id || a.id, nome: a.name || a.accessory?.name || 'Acessório', codigo: a.accessory_id || a.id },
+            unit: a.unit || '',
+            color: a.color || '',
+            quantity: Number(a.quantity) || 1,
+            unit_price: Number(a.unit_price) || 0,
+            subtotal: Number(a.subtotal || a.valor_total || 0),
+          });
+        });
+        if (!cancelado) setItens(itensCarregados);
+      } catch (err) {
+        console.warn('[OrcamentoV2] falha ao carregar orçamento:', err.message);
+        alert('Falha ao carregar orçamento para edição: ' + err.message);
+      } finally {
+        if (!cancelado) setCarregandoOrcamento(false);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [editBudgetId, products]);
 
   // Carrega clientes do Supabase se a prop vier vazia (caso o cache local esteja
   // vazio na primeira renderização ou o usuário tenha acabado de logar).
@@ -102,13 +179,25 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   }, [acessoriosDisponiveis, buscaAcessorio]);
 
   const selecionarAcessorio = (acc) => {
+    // Escolhe a primeira cor COM preço de venda (sale_price > 0).
+    // Se nenhuma tem preço, exibe mas marca como 'sem preço'.
+    const colors = acc.colors || [];
+    const corInicial =
+      colors.find((c) => c.sale_price != null && Number(c.sale_price) > 0)?.color
+      || colors[0]?.color
+      || '';
     setAcessorioAtual({
       id: acc.id,
       name: acc.name,
       unit: acc.unit,
-      color: (acc.colors && acc.colors[0]?.color) || '',
-      quantity: 1
+      color: corInicial,
+      quantity: 1,
     });
+  };
+
+  const qtyAcessorio = (v) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n > 0 ? n : 1;
   };
 
   const salvarNovoCliente = async () => {
@@ -157,21 +246,20 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
 
   const adicionarAcessorio = () => {
     if (!acessorioAtual.id || !accSelecionadoInfo) return;
-    const { acc, precoUnit } = accSelecionadoInfo;
+    const { acc, precoUnit, corObj } = accSelecionadoInfo;
     if (precoUnit === 0) {
       alert(`O acessório "${acc.name}" não tem preço de venda cadastrado.\nCadastre o preço em Acessórios antes de adicionar ao orçamento.`);
       return;
     }
-    const subtotal = precoUnit * (parseInt(acessorioAtual.quantity) || 1);
-    // acc.id é o UUID do produtos_acessorios. Mantém em ambos os campos
-    // (id + codigo) para compatibilidade com consumidores de cada schema.
+    const qty = qtyAcessorio(acessorioAtual.quantity);
+    const subtotal = precoUnit * qty;
     setItens(prev => [...prev, {
-      id: `acc-${Date.now()}`,
+      id: `acc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       tipo: 'acessorio',
       produto: { id: acc.id, nome: acc.name, codigo: acc.id },
       unit: acc.unit,
       color: acessorioAtual.color,
-      quantity: parseInt(acessorioAtual.quantity) || 1,
+      quantity: qty,
       unit_price: precoUnit,
       subtotal
     }]);
@@ -180,6 +268,61 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
 
   const removerItem = (id) => {
     setItens(prev => prev.filter(i => i.id !== id));
+    if (editandoItemId === id) setEditandoItemId(null);
+  };
+
+  const editarItem = (id) => {
+    const item = itens.find(i => i.id === id);
+    if (!item) return;
+    if (item.tipo === 'produto') {
+      setItemAtual(item);
+      setEditandoItemId(id);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (item.tipo === 'acessorio') {
+      // Carrega o acessório no formulário de construção para edição rápida
+      setAcessorioAtual({
+        id: item.produto.id,
+        name: item.produto.nome,
+        unit: item.unit,
+        color: item.color || '',
+        quantity: item.quantity,
+      });
+      setEditandoItemId(id);
+    }
+  };
+
+  const atualizarItemAcessorio = () => {
+    if (!editandoItemId || !accSelecionadoInfo) return;
+    const { precoUnit } = accSelecionadoInfo;
+    if (precoUnit === 0) {
+      alert('Esse acessório não tem preço de venda.');
+      return;
+    }
+    const qty = qtyAcessorio(acessorioAtual.quantity);
+    const subtotal = precoUnit * qty;
+    setItens(prev => prev.map(i => {
+      if (i.id !== editandoItemId) return i;
+      return {
+        ...i,
+        unit: acessorioAtual.unit,
+        color: acessorioAtual.color,
+        quantity: qty,
+        unit_price: precoUnit,
+        subtotal,
+      };
+    }));
+    setEditandoItemId(null);
+    setAcessorioAtual({ id: null, name: '', unit: '', color: '', quantity: 1 });
+  };
+
+  const atualizarItemProduto = () => {
+    if (!editandoItemId || !itemAtual) return;
+    const novoSubtotal = calcSubtotal(itemAtual.produto, itemAtual.selection.largura, itemAtual.selection.altura, itemAtual.selection.quantidade);
+    setItens(prev => prev.map(i => i.id === editandoItemId
+      ? { ...i, produto: itemAtual.produto, selection: { ...itemAtual.selection }, customizacao: { ...itemAtual.customizacao }, subtotal: novoSubtotal }
+      : i));
+    setItemAtual(null);
+    setEditandoItemId(null);
   };
 
   const totalProdutos = useMemo(
@@ -200,18 +343,28 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       selection.altura,
       selection.quantidade
     );
-    setItemAtual({
-      id: `item-${Date.now()}`,
+    const novoItem = {
+      id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       produto,
       selection: { ...selection },
       customizacao: { ...customizacao },
-      subtotal
-    });
+      subtotal,
+    };
+    if (editandoItemId) {
+      // Substitui o item que está sendo editado
+      setItens(prev => prev.map(i => i.id === editandoItemId
+        ? { ...novoItem, id: editandoItemId, tipo: 'produto' }
+        : i));
+      setEditandoItemId(null);
+      setItemAtual(null);
+    } else {
+      setItemAtual(novoItem);
+    }
   };
 
   const handleAdicionar = () => {
     if (!itemAtual) return;
-    setItens(prev => [...prev, itemAtual]);
+    setItens(prev => [...prev, { ...itemAtual, tipo: 'produto' }]);
     setItemAtual(null);
   };
 
@@ -275,7 +428,8 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
 
       const { data, error } = await supabase
         .from('orcamentos')
-        .insert([{
+        .upsert([{
+          ...(orcamentoId ? { id: orcamentoId } : {}),
           cliente_id: clienteId,
           vendedor_id: user?.id || null,
           valor_total: total,
@@ -283,15 +437,15 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
           acessorios_json: JSON.stringify(cleanAccessories),
           ambientes: JSON.stringify([]),
           observacao: observacao,
-          status: 'pendente'
-        }])
+          status: orcamentoId ? orcamentoStatus || 'pendente' : 'pendente',
+        }], { onConflict: 'id' })
         .select()
         .single();
       if (error) throw error;
       // Marca o orçamento como já persistido + status atual.
       setOrcamentoId(data.id);
       setOrcamentoStatus(data.status || 'pendente');
-      alert('Orçamento criado com sucesso!');
+      alert(orcamentoId ? 'Orçamento atualizado com sucesso!' : 'Orçamento criado com sucesso!');
       // Dispara Lead pra Meta CAPI (status=pendente). Best-effort — não bloqueia navegação.
       try {
         const eventId = crypto.randomUUID();
@@ -370,9 +524,9 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       <header style={{ background: 'white', borderBottom: '1px solid #e5e7eb', padding: '16px 24px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22 }}>Novo Orçamento — v2</h1>
+            <h1 style={{ margin: 0, fontSize: 22 }}>{orcamentoId && orcamentoStatus !== 'rascunho' ? `Editar Orçamento #${orcamentoStatus === 'finalizado' ? '✓' : ''}` : 'Novo Orçamento — v2'}</h1>
             <p style={{ margin: '2px 0 0', fontSize: 13, color: '#6b7280' }}>
-              Fluxo redesenhado com seletor em cascata
+              Fluxo redesenhado com seletor em cascata{editBudgetId && ' · Modo edição'}
             </p>
           </div>
           <div style={{ fontSize: 13, color: '#6b7280' }}>
@@ -523,12 +677,22 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
               <div style={{ fontSize: 24, fontWeight: 700, color: '#15803d', marginBottom: 12 }}>
                 R$ {fmt(itemAtual.subtotal)}
               </div>
-              <button
-                onClick={handleAdicionar}
-                style={{ padding: '10px 24px', background: '#16a34a', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
-              >
-                Adicionar ao orçamento
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => editandoItemId && editandoItemId.startsWith('item-') ? atualizarItemProduto() : handleAdicionar()}
+                  style={{ padding: '10px 24px', background: editandoItemId && editandoItemId.startsWith('item-') ? '#ca8a04' : '#16a34a', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+                >
+                  {editandoItemId && editandoItemId.startsWith('item-') ? '✓ Atualizar produto' : 'Adicionar ao orçamento'}
+                </button>
+                {editandoItemId && editandoItemId.startsWith('item-') && (
+                  <button
+                    onClick={() => { setItemAtual(null); setEditandoItemId(null); }}
+                    style={{ padding: '10px 24px', background: 'white', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 14 }}
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -599,11 +763,25 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                   </div>
                 </div>
                 <button
-                  onClick={adicionarAcessorio}
-                  style={{ marginTop: 12, padding: '8px 16px', background: '#0ea5e9', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+                  onClick={() => editandoItemId && editandoItemId.startsWith('acc-') ? atualizarItemAcessorio() : adicionarAcessorio()}
+                  disabled={!accSelecionadoInfo || accSelecionadoInfo.precoUnit === 0}
+                  style={{
+                    marginTop: 12, padding: '8px 16px',
+                    background: !accSelecionadoInfo || accSelecionadoInfo.precoUnit === 0 ? '#e5e7eb' : (editandoItemId && editandoItemId.startsWith('acc-') ? '#ca8a04' : '#0ea5e9'),
+                    color: !accSelecionadoInfo || accSelecionadoInfo.precoUnit === 0 ? '#9ca3af' : 'white',
+                    border: 'none', borderRadius: 6, cursor: (!accSelecionadoInfo || accSelecionadoInfo.precoUnit === 0) ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 13,
+                  }}
                 >
-                  + Adicionar acessório
+                  {editandoItemId && editandoItemId.startsWith('acc-') ? '✓ Atualizar acessório' : '+ Adicionar acessório'}
                 </button>
+                {editandoItemId && editandoItemId.startsWith('acc-') && (
+                  <button
+                    onClick={() => { setEditandoItemId(null); setAcessorioAtual({ id: null, name: '', unit: '', color: '', quantity: 1 }); }}
+                    style={{ marginTop: 12, marginLeft: 8, padding: '8px 16px', background: 'white', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+                  >
+                    Cancelar
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -646,12 +824,19 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                 {itens.map(i => {
                   const customCount = Object.values(i.customizacao || {}).filter(Boolean).length;
                   const isAcc = i.tipo === 'acessorio';
+                  const isEditing = editandoItemId === i.id;
                   return (
-                    <li key={i.id} style={{ padding: 12, borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <li key={i.id} style={{
+                      padding: 12, borderBottom: '1px solid #f3f4f6',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
+                      background: isEditing ? '#fef9c3' : 'transparent',
+                      borderLeft: isEditing ? '3px solid #ca8a04' : 'none',
+                    }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {isAcc && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 4, marginRight: 6 }}>ACC</span>}
                           {i.produto.nome}
+                          {isEditing && <span style={{ fontSize: 10, background: '#fef9c3', color: '#854d0e', padding: '1px 6px', borderRadius: 4, marginLeft: 6 }}>EDITANDO</span>}
                         </div>
                         <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
                           {isAcc
@@ -660,16 +845,24 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                           }
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
+                      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>
                           R$ {fmt(i.subtotal)}
                         </div>
-                        <button
-                          onClick={() => removerItem(i.id)}
-                          style={{ marginTop: 4, fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                        >
-                          Remover
-                        </button>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => editarItem(i.id)}
+                            style={{ fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => removerItem(i.id)}
+                            style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                          >
+                            Remover
+                          </button>
+                        </div>
                       </div>
                     </li>
                   );
