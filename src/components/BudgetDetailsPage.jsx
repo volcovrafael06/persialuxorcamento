@@ -291,6 +291,7 @@ function BudgetDetailsPage({ companyLogo }) {
           unitPrice = subtotal / qty;
         }
         const key = `${item.accessory_id}_${item.color || ''}`;
+        const semPreco = subtotal === 0 || unitPrice === 0;
         if (!groupedAccessories[key]) {
           groupedAccessories[key] = {
             description: `${accessoryName}${colorPart}${unitPart}`,
@@ -299,25 +300,28 @@ function BudgetDetailsPage({ companyLogo }) {
             totalPrice: subtotal,
             isAccessory: true,
             hasColor: Boolean(item.color),
+            semPreco,
           };
         } else {
           groupedAccessories[key].quantity += qty;
           groupedAccessories[key].totalPrice += subtotal;
+          groupedAccessories[key].semPreco = groupedAccessories[key].semPreco && semPreco;
         }
       });
       Object.values(groupedAccessories).forEach(group => {
-        // Marca a linha de acessório com prefixo visual [ACC] e usa textColor
-        // azul se tiver cor definida — diferencia de produto.
-        const prefix = '[AC] ';
+        // FIX 11: mostra "A consultar" quando não tem preço cadastrado,
+        // em vez de R$ 0,00 (falsa impressão de "grátis").
+        const unitStr = group.semPreco ? 'A consultar' : formatCurrency(group.unitPrice);
+        const totalStr = group.semPreco ? 'A consultar' : formatCurrency(group.totalPrice);
+        // FIX 8: removido prefixo "[AC]" — cor azul via didParseCell já distingue.
         const row = [
-          `${prefix}${group.description}`,
+          group.description,
           '-',
           String(group.quantity),
-          formatCurrency(group.unitPrice),
-          formatCurrency(group.totalPrice),
+          unitStr,
+          totalStr,
         ];
         if (group.hasColor || group.isAccessory) {
-          // Marca a primeira célula em cinza-azulado (acessório)
           row._isAccessory = true;
         }
         rows.push(row);
@@ -443,9 +447,12 @@ function BudgetDetailsPage({ companyLogo }) {
     doc.text(`Orçamento #${budget.numero_orcamento || budget.id}`, 14, 45);
     doc.setTextColor(0, 0, 0);
 
-    // Status badge (esquerda)
-    const statusLabel = { pendente: 'PENDENTE', finalizado: 'FINALIZADO', cancelado: 'CANCELADO' }[budget.status] || budget.status;
-    const statusColor = { pendente: [202, 138, 4], finalizado: [21, 128, 61], cancelado: [185, 28, 28] }[budget.status] || [100, 100, 100];
+    // Status badge (FIX 6: fallback seguro — string vazia nunca)
+    const STATUS_MAP = { pendente: 'PENDENTE', finalizado: 'FINALIZADO', cancelado: 'CANCELADO' };
+    const COLOR_MAP = { pendente: [202, 138, 4], finalizado: [21, 128, 61], cancelado: [185, 28, 28] };
+    const safeStatus = (typeof budget.status === 'string' && STATUS_MAP[budget.status]) ? budget.status : 'desconhecido';
+    const statusLabel = STATUS_MAP[safeStatus] || String(budget.status || 'N/D').toUpperCase();
+    const statusColor = COLOR_MAP[safeStatus] || [100, 100, 100];
     doc.setFillColor(...statusColor);
     doc.roundedRect(140, 38, 56, 10, 1.5, 1.5, 'F');
     doc.setFontSize(8);
@@ -457,7 +464,7 @@ function BudgetDetailsPage({ companyLogo }) {
     // Data, validade e vendedor
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString('pt-BR')}`, 14, 52);
+    doc.text(`Data: ${budget.created_at ? new Date(budget.created_at).toLocaleDateString('pt-BR') : '—'}`, 14, 52);
     doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}`, 14, 57);
 
     let yAfterCustomer = 62;
@@ -468,12 +475,19 @@ function BudgetDetailsPage({ companyLogo }) {
 
     if (budget.clientes) {
       const clienteY = yAfterCustomer;
-      // Caixa azul claro do cliente
+      // Endereço (splitToSize) — calcula altura dinâmica
+      const end = budget.clientes.address ? String(budget.clientes.address).trim() : 'Não informado';
+      const endLines = doc.splitTextToSize(`Endereço: ${end}`, 176);
+      const endLineCount = Array.isArray(endLines) ? endLines.length : 1;
+      // 8 (DADOS) + 6 (Nome) + endLineCount * 4.5 (endereço) + 6 (contato) + 4 (padding)
+      const boxHeight = 8 + 6 + (endLineCount * 4.5) + 6 + 4;
+
+      // Caixa azul claro do cliente (altura dinâmica)
       doc.setFillColor(239, 246, 255);
-      doc.rect(14, clienteY, 182, 40, 'F');
+      doc.rect(14, clienteY, 182, boxHeight, 'F');
       doc.setDrawColor(30, 64, 175);
       doc.setLineWidth(0.4);
-      doc.rect(14, clienteY, 182, 40);
+      doc.rect(14, clienteY, 182, boxHeight);
 
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
@@ -481,19 +495,20 @@ function BudgetDetailsPage({ companyLogo }) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
 
-      // Nome + CPF/CNPJ
-      const cpfCnpj = budget.clientes.cpf ? ` · CPF/CNPJ: ${budget.clientes.cpf}` : '';
-      doc.text(`Nome: ${budget.clientes.name}${cpfCnpj}`, 16, clienteY + 12);
+      // Nome + CPF/CNPJ (protegido contra cpf null/undefined)
+      const cpfVal = budget.clientes.cpf ? String(budget.clientes.cpf).trim() : '';
+      const cpfCnpj = cpfVal ? ` · CPF/CNPJ: ${cpfVal}` : '';
+      const nomeVal = budget.clientes.name || '(cliente removido)';
+      doc.text(`Nome: ${nomeVal}${cpfCnpj}`, 16, clienteY + 12);
 
-      // Endereço (até 80 chars)
-      const end = budget.clientes.address || 'Não informado';
-      const endLines = doc.splitTextToSize(`Endereço: ${end}`, 176);
+      // Endereço quebrado em várias linhas se longo
       doc.text(endLines, 16, clienteY + 18);
 
       // Contato: phone | email
       const contact = [budget.clientes.phone, budget.clientes.email].filter(Boolean).join(' | ') || '—';
-      doc.text(`Contato: ${contact}`, 16, clienteY + 30);
-      yAfterCustomer = clienteY + 44;
+      const contatoY = clienteY + 18 + (endLineCount * 4.5) + 3;
+      doc.text(`Contato: ${contact}`, 16, contatoY);
+      yAfterCustomer = clienteY + boxHeight + 4;
     }
     return yAfterCustomer;
   };
@@ -585,22 +600,36 @@ function BudgetDetailsPage({ companyLogo }) {
         },
       });
 
-      // Observação do orçamento, se houver (última página).
+      // Observação no rodapé (FIX 4: respeita margem inferior; cria nova página
+      // se não houver espaço suficiente)
       const pageCount = doc.internal.getNumberOfPages();
       if (budget?.observacao && String(budget.observacao).trim()) {
-        // Posiciona no rodapé da última página.
         const last = pageCount;
         const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 240;
-        doc.setPage(last);
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'bold');
-        doc.text('OBSERVAÇÕES:', 14, finalY + 10);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(60, 60, 60);
-        doc.text(doc.splitTextToSize(String(budget.observacao), 180), 14, finalY + 16);
+        const obsLines = doc.splitTextToSize(String(budget.observacao), 180);
+        const obsHeight = 12 + (Array.isArray(obsLines) ? obsLines.length * 4.5 : 0);
+        if (finalY + obsHeight > 275) {
+          // Não cabe na última página → cria nova
+          doc.addPage();
+          doc.setPage(doc.internal.getNumberOfPages());
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'bold');
+          doc.text('OBSERVAÇÕES:', 14, 14);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
+          doc.text(obsLines, 14, 20);
+        } else {
+          doc.setPage(last);
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'bold');
+          doc.text('OBSERVAÇÕES:', 14, finalY + 10);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
+          doc.text(obsLines, 14, finalY + 16);
+        }
       }
 
-      // Rodapé de paginação
+      // Rodapé de paginação (FIX 14: y=285 evita sobrepor observação)
       const finalPageCount = doc.internal.getNumberOfPages();
       for (let i = 1; i <= finalPageCount; i++) {
         doc.setPage(i);
@@ -609,11 +638,12 @@ function BudgetDetailsPage({ companyLogo }) {
         doc.setTextColor(120, 120, 120);
         doc.text(
           `Emitido em ${new Date().toLocaleString('pt-BR')} · Página ${i} de ${finalPageCount}`,
-          105, 290, { align: 'center' },
+          105, 285, { align: 'center' },
         );
       }
 
-      doc.save(`orcamento_${budget.numero_orcamento || budget.id}.pdf`);
+      const filenameNum = budget.numero_orcamento || `novo-${(budget.id || 's-numero').slice(0, 8)}`;
+      doc.save(`orcamento_${filenameNum}.pdf`);
     } catch (err) {
       console.error('Erro ao gerar PDF:', err);
       alert('Erro ao gerar PDF. Tente usar a opção de Imprimir.');
