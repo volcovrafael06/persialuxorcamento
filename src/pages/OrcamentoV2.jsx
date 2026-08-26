@@ -210,25 +210,36 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   }, [acessoriosDisponiveis, buscaAcessorio]);
 
   const selecionarAcessorio = (acc) => {
-    // Escolhe a primeira cor COM preço de venda (sale_price > 0).
-    // Se nenhuma tem preço, exibe mas marca como 'sem preço'.
+    // Escolhe a primeira cor com sale_price definido (pode ser 0 = a consultar).
+    // Se acc.colors é array de objetos {color, sale_price}, filtra válida.
+    // Se acc.colors é array de strings puro (legado), usa direto.
     const colors = acc.colors || [];
+    const primeiraComPreco =
+      colors.find((c) => {
+        const cVal = typeof c === 'object' ? (c.color || c.nome) : c;
+        const sPrice = typeof c === 'object' ? Number(c.sale_price) : null;
+        return cVal && sPrice != null && !Number.isNaN(sPrice);
+      });
     const corInicial =
-      colors.find((c) => c.sale_price != null && Number(c.sale_price) > 0)?.color
-      || colors[0]?.color
+      (typeof primeiraComPreco === 'object' ? primeiraComPreco.color : primeiraComPreco)
+      || (typeof colors[0] === 'object' ? colors[0].color : colors[0])
       || '';
     setAcessorioAtual({
       id: acc.id,
       name: acc.name,
-      unit: acc.unit,
-      color: corInicial,
+      unit: acc.unit || '',
+      color: corInicial || '',
       quantity: 1,
+      fornecedor: acc.fornecedor || acc.supplier || '',
+      codigo: acc.codigo || acc.sku || acc.id,
     });
   };
 
+  // Quantidade segura: aceita fracionário (ex: 0.5 metro) e trata NaN/vazio.
   const qtyAcessorio = (v) => {
     const n = parseFloat(v);
-    return Number.isFinite(n) && n > 0 ? n : 1;
+    if (!Number.isFinite(n) || n <= 0) return 1;
+    return n;
   };
 
   const salvarNovoCliente = async () => {
@@ -335,25 +346,26 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   const atualizarItemAcessorio = () => {
     if (!editandoItemId || !accSelecionadoInfo) return;
     const { precoUnit } = accSelecionadoInfo;
-    if (precoUnit === 0) {
-      alert('Esse acessório não tem preço de venda.');
+    const qty = qtyAcessorio(acessorioAtual.quantity);
+    if (qty <= 0) {
+      alert('Quantidade deve ser maior que zero.');
       return;
     }
-    const qty = qtyAcessorio(acessorioAtual.quantity);
     const subtotal = precoUnit * qty;
     setItens(prev => prev.map(i => {
       if (i.id !== editandoItemId) return i;
       return {
         ...i,
-        unit: acessorioAtual.unit,
-        color: acessorioAtual.color,
+        unit: acessorioAtual.unit || i.unit || '',
+        color: acessorioAtual.color || i.color || '',
         quantity: qty,
         unit_price: precoUnit,
+        semPreco: precoUnit === 0,
         subtotal,
       };
     }));
     setEditandoItemId(null);
-    setAcessorioAtual({ id: null, name: '', unit: '', color: '', quantity: 1 });
+    setAcessorioAtual({ id: null, name: '', unit: '', color: '', quantity: 1, fornecedor: '', codigo: '' });
   };
 
   const atualizarItemProduto = () => {
@@ -469,7 +481,8 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       const cleanAccessories = itens
         .filter(i => i.tipo === 'acessorio')
         .map(i => ({
-          accessory_id: i.produto.id,
+          accessory_id: i.produto.codigo || i.produto.id,
+          accessory: { id: i.produto.id, name: i.produto.nome, unit: i.unit, colors: [] },
           name: i.produto.nome,
           unit: i.unit || '',
           color: typeof i.color === 'string' ? i.color : '',
@@ -477,6 +490,8 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
           quantity: Number(i.quantity) || 1,
           subtotal: Number(i.subtotal) || 0,
           valor_total: Number(i.subtotal) || 0,
+          sem_preco: !!i.semPreco,
+          fornecedor: i.produto.fornecedor || '',
         }));
 
       const { data, error } = await supabase
@@ -1079,9 +1094,23 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                           {isEditing && <span style={{ fontSize: 10, background: '#fef9c3', color: '#854d0e', padding: '1px 6px', borderRadius: 4, marginLeft: 6 }}>EDITANDO</span>}
                         </div>
                         <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                          {isAcc
-                            ? `${i.color || '—'} · ${i.unit} · Qtd ${i.quantity} · R$ ${fmt(i.unit_price)}/${i.unit}`
-                            : <>
+                          {isAcc ? (
+                            <>
+                              <div>
+                                {i.color && <span><strong>Cor:</strong> {i.color} · </span>}
+                                <span><strong>Qtd:</strong> {i.quantity}{i.unit ? ` ${i.unit}` : ''}</span>
+                                {i.unit && (
+                                  <span> · <strong>Unit:</strong> {i.semPreco ? 'A consultar' : `R$ ${fmt(i.unit_price)}/${i.unit}`}</span>
+                                )}
+                              </div>
+                              {i.produto.fornecedor && (
+                                <div style={{ marginTop: 2, fontSize: 10, color: '#6b7280' }}>
+                                  Fornecedor: {i.produto.fornecedor}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <>
                                 <div>{i.selection.largura}m × {i.selection.altura}m · Qtd {i.selection.quantidade}</div>
                                 {(i.selection.modelo || i.selection.acionamento) && (
                                   <div style={{ marginTop: 2, color: '#4b5563' }}>
@@ -1102,7 +1131,7 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
                                   </div>
                                 )}
                               </>
-                          }
+                            )}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 4 }}>
