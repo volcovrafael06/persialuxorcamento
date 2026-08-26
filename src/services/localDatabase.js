@@ -1,28 +1,23 @@
 import { openDB } from 'idb';
 
 const DB_NAME = 'persifix_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const dbPromise = openDB(DB_NAME, DB_VERSION, {
-  upgrade(db) {
+  upgrade(db, oldVersion, newVersion) {
     // Criar stores para cada tipo de dado
-    if (!db.objectStoreNames.contains('orcamentos')) {
+    if (oldVersion < 1) {
       db.createObjectStore('orcamentos', { keyPath: 'id' });
-    }
-    if (!db.objectStoreNames.contains('clientes')) {
       db.createObjectStore('clientes', { keyPath: 'id' });
-    }
-    if (!db.objectStoreNames.contains('produtos')) {
       db.createObjectStore('produtos', { keyPath: 'id' });
-    }
-    if (!db.objectStoreNames.contains('accessories')) {
       db.createObjectStore('accessories', { keyPath: 'id' });
-    }
-    if (!db.objectStoreNames.contains('configuracoes')) {
       db.createObjectStore('configuracoes', { keyPath: 'id' });
-    }
-    if (!db.objectStoreNames.contains('visits')) {
       db.createObjectStore('visits', { keyPath: 'id' });
+    }
+    if (oldVersion < 3) {
+      if (!db.objectStoreNames.contains('produtos_acessorios')) {
+        db.createObjectStore('produtos_acessorios', { keyPath: 'id' });
+      }
     }
   },
 });
