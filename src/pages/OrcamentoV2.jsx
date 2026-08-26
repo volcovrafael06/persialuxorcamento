@@ -627,8 +627,115 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     return () => { cancelled = true; };
   }, [formaPagamento, bandeiraCartao, parcelasCartao, descontoPixPct, total]);
 
+  // Parcelas disponíveis baseadas nas taxas cadastradas
+  const parcelasDisponiveis = useMemo(() => {
+    const set = new Set();
+    taxasCartao.forEach((t) => { if (t.bandeira === bandeiraCartao && t.ativa) set.add(t.parcelas); });
+    if (set.size === 0) return [1, 2, 3, 6, 10, 12];
+    return Array.from(set).sort((a, b) => a - b);
+  }, [taxasCartao, bandeiraCartao]);
+
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif' }}>
+      {showPagamentoModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 520,
+            boxShadow: '0 20px 25px rgba(0,0,0,0.15)',
+          }}>
+            <h2 style={{ margin: '0 0 4px', fontSize: 20 }}>Finalizar orçamento</h2>
+            <p style={{ margin: '0 0 16px', color: '#6b7280', fontSize: 13 }}>
+              Escolha a forma de pagamento — a taxa de cartão é descontada/aplicada conforme configurado em Taxas de Cartão.
+            </p>
+
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Forma de pagamento</label>
+            <select value={formaPagamento}
+              onChange={(e) => { setFormaPagamento(e.target.value); if (e.target.value === 'credit_card') setParcelasCartao(1); }}
+              style={{ width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, marginBottom: 12, boxSizing: 'border-box' }}>
+              <option value="credit_card">Cartão de crédito</option>
+              <option value="pix">PIX (com desconto)</option>
+              <option value="boleto">Boleto</option>
+              <option value="dinheiro">Dinheiro</option>
+              <option value="transferencia">Transferência</option>
+            </select>
+
+            {formaPagamento === 'credit_card' && (
+              <>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Bandeira</label>
+                <select value={bandeiraCartao} onChange={(e) => setBandeiraCartao(e.target.value)}
+                  style={{ width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, marginBottom: 12, boxSizing: 'border-box' }}>
+                  {BANDEIRAS_CARTAO.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+                </select>
+
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Parcelas</label>
+                <select value={parcelasCartao} onChange={(e) => setParcelasCartao(Number(e.target.value))}
+                  style={{ width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, marginBottom: 12, boxSizing: 'border-box' }}>
+                  {parcelasDisponiveis.map((p) => <option key={p} value={p}>{p}x</option>)}
+                </select>
+
+                {taxaAplicada && Number(taxaAplicada.taxa_percentual) > 0 && (
+                  <div style={{ background: '#fef3c7', padding: 8, borderRadius: 6, fontSize: 12, color: '#854d0e', marginBottom: 12 }}>
+                    Taxa cadastrada: <strong>{Number(taxaAplicada.taxa_percentual).toFixed(2)}%</strong> de juros sobre o valor total.
+                  </div>
+                )}
+                {!taxaAplicada && (
+                  <div style={{ background: '#fee2e2', padding: 8, borderRadius: 6, fontSize: 12, color: '#b91c1c', marginBottom: 12 }}>
+                    Nenhuma taxa cadastrada para {bandeiraCartao} {parcelasCartao}x. Cadastre em Taxas de Cartão antes de finalizar.
+                  </div>
+                )}
+              </>
+            )}
+
+            {formaPagamento === 'pix' && (
+              <>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Desconto PIX (%)</label>
+                <input type="number" step="0.01" min="0" max="100"
+                  value={descontoPixPct} onChange={(e) => setDescontoPixPct(Number(e.target.value))}
+                  style={{ width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, marginBottom: 12, boxSizing: 'border-box' }} />
+              </>
+            )}
+
+            <div style={{ background: '#f0fdf4', border: '1px solid #15803d', padding: 12, borderRadius: 6, marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1f2937' }}>
+                <span>Valor total:</span><strong>R$ {fmt(total)}</strong>
+              </div>
+              {formaPagamento === 'credit_card' && taxaAplicada && Number(taxaAplicada.taxa_percentual) > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#854d0e', marginTop: 4 }}>
+                  <span>Juros ({Number(taxaAplicada.taxa_percentual).toFixed(2)}%):</span>
+                  <span>+ R$ {fmt(total * (Number(taxaAplicada.taxa_percentual) / 100))}</span>
+                </div>
+              )}
+              {formaPagamento === 'pix' && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#15803d', marginTop: 4 }}>
+                  <span>Desconto PIX ({descontoPixPct}%):</span>
+                  <span>− R$ {fmt(total * (descontoPixPct / 100))}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700, color: '#15803d', marginTop: 8, paddingTop: 8, borderTop: '1px solid #bbf7d0' }}>
+                <span>Valor final:</span><span>R$ {fmt(valorLiquido)}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowPagamentoModal(false)} disabled={finalizando}
+                style={{ padding: '10px 16px', background: 'white', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={handleConfirmarPagamento}
+                disabled={finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)}
+                style={{
+                  padding: '10px 20px',
+                  background: (finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)) ? '#e5e7eb' : '#15803d',
+                  color: (finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)) ? '#9ca3af' : 'white',
+                  border: 'none', borderRadius: 6,
+                  cursor: (finalizando || (formaPagamento === 'credit_card' && !taxaAplicada)) ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                }}>{finalizando ? 'Finalizando…' : 'Confirmar e Finalizar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <header style={{ background: 'white', borderBottom: '1px solid #e5e7eb', padding: '16px 24px' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
