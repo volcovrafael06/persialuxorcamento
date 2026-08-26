@@ -176,42 +176,87 @@ export default function Reports({ budgets: initialBudgets }) {
   }, [periodo, inicio, fim]);
 
   // ===========================================================================
-  // DRE — Calcula CMV a partir dos produtos_json de cada orçamento finalizado.
+  // DRE — Receita Bruta, CMV (produto + instalação + acessório),
+  //        Despesas Operacionais, Lucro Líquido e Margem.
+  // Tudo separado por linha, sem heurística de "custo/venda".
   // ===========================================================================
   const dre = useMemo(() => {
     const finalizados = budgets.filter((b) => b.status === 'finalizado');
-    const Receita = finalizados.reduce((s, b) => s + Number(b.valor_negociado || b.valor_total || 0), 0);
+    // Receita: usar valor_negociado se existir (já com juros/desconto aplicados);
+    // senão valor_total.
+    const receitaBruta = finalizados.reduce(
+      (s, b) => s + Number(b.valor_negociado || b.valor_total || 0), 0
+    );
 
-    // CMV: para cada produto em produtos_json, encontrar produto da tabela e usar preco_custo * area/quantidade.
-    // Como produtos_json tem valor de venda, mas nem sempre custo, recomputamos aqui.
-    let CMV = 0;
+    // Mapa de produtos (custo) e acessórios (custo_unitario).
     const mapaCustos = {};
     produtos.forEach((p) => { mapaCustos[p.id] = Number(p.preco_custo) || 0; });
-    const mapaVenda = {};
-    produtos.forEach((p) => { mapaVenda[p.id] = Number(p.preco_venda) || 0; });
+    const accMap = {};
+    acessoriosCatalogo.forEach((a) => { accMap[a.id] = a; });
+
+    let cmvProdutos = 0;
+    let cmvInstalacao = 0;
+    let cmvAcessorios = 0;
+    let receitaAcess = 0; // venda dos acessórios (sem juros)
+    let receitaProdutosVenda = 0; // venda dos produtos (sem juros/desconto)
+    let totalTaxaCartao = 0;
+    let totalDescontoPix = 0;
 
     finalizados.forEach((b) => {
-      let itens = [];
-      try { itens = JSON.parse(b.produtos_json || '[]'); } catch { /* ignore */ }
-      itens.forEach((item) => {
+      // 1) CMV produtos (usa preco_custo do DB)
+      const itensProd = safeGetProdutos(b.produtos_json);
+      itensProd.forEach((item) => {
         const pid = item.produto_id || item.product?.id || item.id;
         const custoUnit = mapaCustos[pid] || 0;
-        const l = Number(item.largura || item.width || 0);
-        const a = Number(item.altura || item.height || 0);
-        const q = Number(item.quantidade || item.quantity || 1);
-        const venda = mapaVenda[pid] || Number(item.subtotal) || 0;
-        // Heurística: se venda > 0 e custo > 0, razão = custo/venda; CMV item = venda * razão
-        // Senão, fallback: usar venda como CMV (não ideal mas evita quebrar)
-        const vendaItem = Number(item.subtotal) || venda;
-        const custoItem = vendaItem > 0 && custoUnit > 0 ? vendaItem * (custoUnit / (mapaVenda[pid] || 1)) : 0;
-        CMV += custoItem;
+        const l = Number(item.input_width || item.largura || 0);
+        const a = Number(item.input_height || item.altura || 0);
+        const q = Number(item.quantidade || item.quantity || 1) || 1;
+        const metodo = String(item.metodo_calculo || 'm2').toLowerCase();
+        const areaMin = Number(item.area_minima) || 0;
+        let unidades = 0;
+        if (metodo === 'ml' || metodo === 'linear') unidades = l * q;
+        else if (metodo === 'altura') unidades = a * q;
+        else {
+          const area = l * a;
+          unidades = Math.max(area, areaMin) * q;
+        }
+        cmvProdutos += custoUnit * unidades;
+        receitaProdutosVenda += Number(item.subtotal || item.valor_total || 0);
+        // Instalação (se o item tem instalacao + valor_instalacao)
+        if (item.instalacao) {
+          cmvInstalacao += Number(item.valor_instalacao || 0);
+        }
       });
+
+      // 2) CMV acessórios
+      const itensAcc = safeGetProdutos(b.acessorios_json);
+      itensAcc.forEach((a) => {
+        const aid = a.accessory_id || a.id;
+        const acc = accMap[aid];
+        const qty = Number(a.quantity) || 1;
+        let custoUnit = Number(acc?.cost_price) || 0;
+        if (custoUnit <= 0) custoUnit = (Number(a.unit_price) || 0) * 0.6;
+        cmvAcessorios += custoUnit * qty;
+        receitaAcess += (Number(a.unit_price) || 0) * qty;
+      });
+
+      // 3) Taxa cartão / Desconto PIX (por orçamento)
+      const valorSemTaxa = Number(b.valor_total || 0);
+      const valorFinal = Number(b.valor_negociado || valorSemTaxa);
+      if (b.payment_method === 'credit_card' && Number(b.payment_tax_rate) > 0) {
+        // Juros = valorFinal - valorSemTaxa (somente a parte de juros é receita)
+        totalTaxaCartao += Math.max(0, valorFinal - valorSemTaxa);
+      } else if (b.payment_method === 'pix' && Number(b.payment_discount_rate) > 0) {
+        // Desconto = valorSemTaxa - valorFinal (perda de receita)
+        totalDescontoPix += Math.max(0, valorSemTaxa - valorFinal);
+      }
     });
 
-    const LucroBruto = Receita - CMV;
-    const margemBruta = Receita > 0 ? (LucroBruto / Receita) * 100 : 0;
+    const cmvTotal = cmvProdutos + cmvInstalacao + cmvAcessorios;
+    const lucroBruto = receitaBruta - cmvTotal;
+    const margemBruta = receitaBruta > 0 ? (lucroBruto / receitaBruta) * 100 : 0;
 
-    // Despesas operacionais
+    // Despesas operacionais (todas pagas)
     const despOperacional = despesas
       .filter((d) => d.status === 'pago')
       .reduce((s, d) => s + Number(d.valor || 0), 0);
@@ -229,7 +274,7 @@ export default function Reports({ budgets: initialBudgets }) {
       });
 
     const LucroLiquido = LucroBruto - despOperacional;
-    const margemLiquida = Receita > 0 ? (LucroLiquido / Receita) * 100 : 0;
+    const margemLiquida = receitaBruta > 0 ? (LucroLiquido / receitaBruta) * 100 : 0;
 
     return {
       receita_bruta: Receita,
@@ -385,6 +430,9 @@ export default function Reports({ budgets: initialBudgets }) {
             <div style={{ padding: 16 }}>
               <DRELinha label="(+) Receita Bruta (orçamentos finalizados)" valor={dre.receita_bruta} tipo="+info" />
               <DRELinha label="(–) CMV — Custo dos Produtos Vendidos" valor={-dre.cmv} tipo="-info" />
+              <DRELinha label="(-) CMV Produtos" valor={-dre.cmv_produtos} tipo="-info" />
+              {dre.cmv_instalacao > 0 && <DRELinha label="(-) CMV Instalação" valor={-dre.cmv_instalacao} tipo="-info" />}
+              <DRELinha label="(-) CMV Acessórios" valor={-dre.cmv_acessorios} tipo="-info" />
               <DRESubtotal label="(=) Lucro Bruto" valor={dre.lucro_bruto} margem={dre.margem_bruta} />
 
               <div style={{ height: 1, background: '#e5e7eb', margin: '12px 0' }} />
@@ -408,7 +456,9 @@ export default function Reports({ budgets: initialBudgets }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 16 }}>
                 <CardSimples titulo="Orçamentos Finalizados" valor={String(dre.qtd_finalizados)} cor="#1f2937" />
                 <CardSimples titulo="Ticket Médio" valor={fmtBRL(dre.ticket_medio)} cor="#2563eb" />
-                <CardSimples titulo="Margem Líquida" valor={pct(dre.margem_liquida)} cor={dre.lucro_liquido >= 0 ? '#15803d' : '#dc2626'} />
+                <CardSimples titulo="CMV Total" valor={fmtBRL(dre.cmv)} cor="#b91c1c" />
+              <CardSimples titulo="Taxa Cartão" valor={fmtBRL(dre.taxa_cartao_recebida)} cor="#ca8a04" />
+              <CardSimples titulo="Margem Líquida" valor={pct(dre.margem_liquida)} cor={dre.lucro_liquido >= 0 ? '#15803d' : '#dc2626'} />
               </div>
             </div>
           </div>

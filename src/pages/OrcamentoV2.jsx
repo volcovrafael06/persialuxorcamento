@@ -6,6 +6,8 @@ import { supabase } from '../supabase/client';
 import { clienteService } from '../services/clienteService';
 import { sendMetaEvent, persistMetaEventResult } from '../services/metaCapiService';
 import { taxaCartaoService, BANDEIRAS_CARTAO } from '../services/taxaCartaoService';
+import { contasPagarService } from '../services/contasPagarService';
+import { contasReceberService } from '../services/contasReceberService';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -561,6 +563,100 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   };
 
   // Confirma o pagamento: salva forma + taxa no orcamento, finaliza, dispara Meta.
+  // =========================================================================
+  // Geração automática de Contas a Pagar / Receber ao finalizar orçamento.
+  // Conta a Pagar (custo): CMV dos produtos + custo dos acessórios.
+  // Conta a Receber (venda): valor negociado (com juros/desconto aplicados).
+  // =========================================================================
+  const gerarContasAoFinalizar = async (orc, valorNegociado) => {
+    // Carrega custo dos produtos e acessórios.
+    const { data: prods } = await supabase
+      .from('produtos')
+      .select('id,preco_custo');
+    const { data: accs } = await supabase
+      .from('produtos_acessorios')
+      .select('id,cost_price,sale_price,name,colors');
+    const mapaCustoProd = {};
+    (prods || []).forEach((p) => { mapaCustoProd[p.id] = Number(p.preco_custo) || 0; });
+    const mapaAcc = {};
+    (accs || []).forEach((a) => { mapaAcc[a.id] = a; });
+
+    let cmvProdutos = 0;
+    let itensProd = [];
+    try { itensProd = JSON.parse(orc.produtos_json || '[]'); } catch {}
+    itensProd.forEach((item) => {
+      const pid = item.produto_id || item.product?.id || item.id;
+      const l = Number(item.input_width || item.largura || 0);
+      const a = Number(item.input_height || item.altura || 0);
+      const q = Number(item.quantidade || item.quantity || 1) || 1;
+      const metodo = String(item.metodo_calculo || 'm2').toLowerCase();
+      const areaMin = Number(item.area_minima) || 0;
+      let unidades = 0;
+      if (metodo === 'ml' || metodo === 'linear') unidades = l * q;
+      else if (metodo === 'altura') unidades = a * q;
+      else {
+        const area = l * a;
+        unidades = Math.max(area, areaMin) * q;
+      }
+      cmvProdutos += (mapaCustoProd[pid] || 0) * unidades;
+    });
+
+    let cmvAcessorios = 0;
+    let itensAcc = [];
+    try { itensAcc = JSON.parse(orc.acessorios_json || '[]'); } catch {}
+    itensAcc.forEach((a) => {
+      const aid = a.accessory_id || a.id;
+      const acc = mapaAcc[aid];
+      const qty = Number(a.quantity) || 1;
+      let custoUnit = Number(acc?.cost_price) || 0;
+      if (custoUnit <= 0) custoUnit = (Number(a.unit_price) || 0) * 0.6;
+      cmvAcessorios += custoUnit * qty;
+    });
+
+    const custoTotal = cmvProdutos + cmvAcessorios;
+    const hoje = new Date().toISOString().slice(0, 10);
+    const vencimentoPagar = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const numeroParcelas = orc.payment_installments && orc.payment_installments > 0
+      ? orc.payment_installments : 1;
+    const vencimentoReceber = new Date(Date.now() + numeroParcelas * 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    try {
+      // 1) Conta a PAGAR (fornecedor padrão "Mercadoria PersiFix")
+      if (custoTotal > 0) {
+        await contasPagarService.create({
+          descricao: `Compra do orçamento #${orc.numero_orcamento || orc.id?.slice(0, 8)}`,
+          fornecedor_nome: 'Mercadoria PersiFix (compra de produto/acessório)',
+          categoria: 'compra',
+          valor_total: custoTotal,
+          numero_parcelas: 1,
+          parcela_atual: 1,
+          data_emissao: hoje,
+          data_vencimento: vencimentoPagar,
+          status: 'pendente',
+          forma_pagamento: 'boleto',
+          orcamento_id: orc.id,
+        });
+      }
+      // 2) Conta a RECEBER (cliente)
+      if (valorNegociado > 0) {
+        await contasReceberService.create({
+          descricao: `Recebimento orçamento #${orc.numero_orcamento || orc.id?.slice(0, 8)}`,
+          orcamento_id: orc.id,
+          cliente_id: orc.cliente_id,
+          valor_total: valorNegociado,
+          numero_parcelas: numeroParcelas,
+          parcela_atual: 1,
+          data_emissao: hoje,
+          data_vencimento: vencimentoReceber,
+          forma_recebimento: orc.payment_method || 'pix',
+          status: 'pendente',
+        });
+      }
+    } catch (err) {
+      console.warn('[OrcamentoV2] falha ao gerar contas a pagar/receber:', err?.message);
+    }
+  };
+
   const handleConfirmarPagamento = async () => {
     setFinalizando(true);
     setShowPagamentoModal(false);
@@ -627,7 +723,9 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       } catch (e) {
         console.warn('[meta-capi] erro ao enviar Purchase (não crítico):', e?.message || e);
       }
-      alert(`Orçamento finalizado!\nForma: ${formaPagamento === 'credit_card' ? `Cartão ${parcelasCartao}x ${bandeiraCartao}` : formaPagamento.toUpperCase()}\nValor final: R$ ${valorNegociado.toFixed(2)}`);
+      // 3) Gera Contas a Pagar (CMV) e Receber (valor negociado) automaticamente
+      await gerarContasAoFinalizar(updated, valorNegociado);
+      alert(`Orçamento finalizado!\nForma: ${formaPagamento === 'credit_card' ? `Cartão ${parcelasCartao}x ${bandeiraCartao}` : formaPagamento.toUpperCase()}\nValor final: R$ ${valorNegociado.toFixed(2)}\nContas a pagar e receber geradas.`);
       navigate(`/budgets/${orcamentoId}/view`);
     } catch (err) {
       alert('Erro ao finalizar: ' + (err.message || 'desconhecido'));

@@ -1,6 +1,6 @@
 // src/services/taxaCartaoService.js
-// Wrapper do CRUD + lookup em tempo real (taxa por bandeira/parcela).
-// Reaproveitado do módulo financeiro.
+// Wrapper do CRUD + lookup em tempo real (taxa por bandeira × parcela).
+// Reaproveitado pelo módulo financeiro + modal de pagamento.
 
 import { supabase } from '../supabase/client';
 
@@ -17,6 +17,9 @@ export const BANDEIRAS_CARTAO = [
   { value: 'outros',     label: 'Outros' },
 ];
 
+const tabelaAusente = (err) =>
+  err?.code === 'PGRST205' || /not found/i.test(err?.message || '');
+
 export const taxaCartaoService = {
   async getAll() {
     const { data, error } = await supabase
@@ -24,7 +27,18 @@ export const taxaCartaoService = {
       .select('*')
       .order('bandeira', { ascending: true })
       .order('parcelas', { ascending: true });
-    if (error?.code === 'PGRST205' || /not found/i.test(error?.message || '')) return [];
+    if (tabelaAusente(error)) return [];
+    if (error) throw error;
+    return data || [];
+  },
+
+  async getByBandeira(bandeira) {
+    const { data, error } = await supabase
+      .from('taxas_cartao')
+      .select('*')
+      .eq('bandeira', bandeira)
+      .order('parcelas', { ascending: true });
+    if (tabelaAusente(error)) return [];
     if (error) throw error;
     return data || [];
   },
@@ -38,8 +52,58 @@ export const taxaCartaoService = {
       .eq('parcelas', parcelas)
       .eq('ativa', true)
       .maybeSingle();
-    if (error?.code === 'PGRST205' || /not found/i.test(error?.message || '')) return null;
+    if (tabelaAusente(error)) return null;
     if (error) return null;
     return data;
+  },
+
+  async create(item) {
+    const { data: { user } } = await supabase.auth.getUser();
+    const payload = {
+      user_id: user?.id || null,
+      bandeira: item.bandeira,
+      parcelas: Number(item.parcelas),
+      taxa_percentual: Number(item.taxa_percentual) || 0,
+      ativa: item.ativa !== false,
+      observacao: item.observacao || null,
+    };
+    const { data, error } = await supabase
+      .from('taxas_cartao')
+      .insert([payload])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async update(id, item) {
+    const payload = {
+      taxa_percentual: Number(item.taxa_percentual) || 0,
+      ativa: item.ativa !== false,
+      observacao: item.observacao || null,
+    };
+    const { data, error } = await supabase
+      .from('taxas_cartao')
+      .update(payload)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async setAtiva(id, ativa) {
+    const { error } = await supabase
+      .from('taxas_cartao')
+      .update({ ativa })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  async remove(id) {
+    const { error } = await supabase.from('taxas_cartao').delete().eq('id', id);
+    if (error) throw error;
+    return true;
   },
 };
