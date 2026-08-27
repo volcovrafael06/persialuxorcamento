@@ -8,6 +8,7 @@ import { sendMetaEvent, persistMetaEventResult } from '../services/metaCapiServi
 import { taxaCartaoService, BANDEIRAS_CARTAO } from '../services/taxaCartaoService';
 import { contasPagarService } from '../services/contasPagarService';
 import { contasReceberService } from '../services/contasReceberService';
+import ConfirmModal from '../components/ConfirmModal';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -78,6 +79,28 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     quantity: 1
   });
   const [buscaAcessorio, setBuscaAcessorio] = useState('');
+
+  // Sistema de notificação inline (substitui alert/confirm nativos
+  // que não funcionam em iframes / Claude browser).
+  const [notificacao, setNotificacao] = useState(null); // { tipo, mensagem }
+  const showNotif = (mensagem, tipo = 'info', ttl = 4000) => {
+    setNotificacao({ mensagem, tipo });
+    if (ttl > 0) setTimeout(() => setNotificacao(null), ttl);
+  };
+  const showErro = (mensagem) => showNotif(mensagem, 'erro', 6000);
+  const showSucesso = (mensagem) => showNotif(mensagem, 'sucesso', 3000);
+
+  // Confirm async substituto de window.confirm — retorna Promise<boolean>
+  const [confirmState, setConfirmState] = useState(null); // { msg, resolve }
+  const pedirConfirmacao = (mensagem, titulo = 'Confirmar') => {
+    return new Promise((resolve) => {
+      setConfirmState({ mensagem, titulo, resolve });
+    });
+  };
+  const onConfirmResposta = (resposta) => {
+    if (confirmState?.resolve) confirmState.resolve(resposta);
+    setConfirmState(null);
+  };
 
   useEffect(() => {
     if (customers && customers.length > 0) {
@@ -423,7 +446,9 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
     setItemAtual(null);
   };
 
-  const handleSalvar = async () => {
+  const handleSalvar = async (options = {}) => {
+    const showAlerts = options.showAlerts !== false;
+    const afterSave = options.afterSave;
     if (!clienteId) {
       alert('Selecione um cliente antes de salvar.');
       return;
@@ -515,7 +540,7 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       // Marca o orçamento como já persistido + status atual.
       setOrcamentoId(data.id);
       setOrcamentoStatus(data.status || 'pendente');
-      alert(orcamentoId ? 'Orçamento atualizado com sucesso!' : 'Orçamento criado com sucesso!');
+      if (showAlerts) alert(orcamentoId ? 'Orçamento atualizado com sucesso!' : 'Orçamento criado com sucesso!');
       // Dispara Lead pra Meta CAPI (status=pendente). Best-effort — não bloqueia navegação.
       try {
         const eventId = crypto.randomUUID();
@@ -533,6 +558,15 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       } catch (e) {
         console.warn('[meta-capi] erro ao enviar Lead (não crítico):', e?.message || e);
       }
+
+      // Callback opcional após save (usado por handleFinalizar para abrir modal).
+      if (typeof afterSave === 'function') {
+        try {
+          await afterSave(data);
+        } catch (err) {
+          console.warn('[OrcamentoV2] afterSave callback falhou:', err?.message);
+        }
+      }
       navigate(`/budgets/${data.id}/view`);
     } catch (err) {
       alert('Erro ao salvar: ' + (err.message || 'desconhecido'));
@@ -542,22 +576,12 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   };
 
   // Abre modal de pagamento antes de finalizar — calcula taxa/valor líquido.
-  const handleFinalizar = async () => {
-    if (!orcamentoId) {
-      // Salva o orçamento primeiro automaticamente antes de abrir o modal
-      const ok = window.confirm('O orçamento ainda não foi salvo.\nSalvar e abrir modal de pagamento agora?');
-      if (!ok) return;
-      try {
-        await handleSalvar();
-      } catch (err) {
-        alert('Falha ao salvar antes de finalizar: ' + (err.message || ''));
-        return;
-      }
-    }
-    if (orcamentoStatus === 'finalizado') {
-      alert('Este orçamento já está finalizado.');
-      return;
-    }
+
+
+  // Comportamento:
+  // - Se !orcamentoId: pede confirmação, salva primeiro, abre modal
+  // - Se orcamentoId: validações rápidas e abre modal direto
+  const abrirModalPagamento = async () => {
     if (itens.length === 0) {
       alert('Adicione pelo menos um item antes de finalizar.');
       return;
@@ -566,7 +590,6 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       alert('Selecione um cliente antes de finalizar.');
       return;
     }
-    // Carrega taxas (best-effort — se tabela não existir, segue sem).
     try {
       const lista = await taxaCartaoService.getAll();
       setTaxasCartao(lista);
@@ -575,6 +598,39 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       setTaxasCartao([]);
     }
     setShowPagamentoModal(true);
+  };
+
+  const handleFinalizar = async () => {
+    // Validações inline (sem alert — usa notificacao)
+    if (!clienteId) {
+      showErro('Selecione um cliente antes de finalizar.');
+      return;
+    }
+    if (itens.length === 0) {
+      showErro('Adicione pelo menos um item antes de finalizar.');
+      return;
+    }
+    if (orcamentoStatus === 'finalizado') {
+      showErro('Este orçamento já está finalizado.');
+      return;
+    }
+
+    if (!orcamentoId) {
+      // Salva o orçamento primeiro, depois abre modal de pagamento.
+      const prosseguiu = await pedirConfirmacao(
+        'O orçamento ainda não foi salvo.\nSalvar e abrir modal de pagamento agora?',
+        'Salvar e Finalizar'
+      );
+      if (!prosseguiu) return;
+      try {
+        await handleSalvar({ showAlerts: false, afterSave: () => abrirModalPagamento() });
+      } catch (err) {
+        console.error('Falha ao salvar antes de finalizar:', err);
+        showErro('Não foi possível salvar: ' + (err.message || ''));
+      }
+    } else {
+      await abrirModalPagamento();
+    }
   };
 
   // Confirma o pagamento: salva forma + taxa no orcamento, finaliza, dispara Meta.
@@ -1336,6 +1392,44 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
           </div>
         </aside>
       </main>
+      {/* Banner de notificação (substitui alert nativo que falha em iframe) */}
+      {notificacao && (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed', bottom: 16, right: 16, zIndex: 300,
+            background: notificacao.tipo === 'erro' ? '#fee2e2' : notificacao.tipo === 'sucesso' ? '#dcfce7' : '#dbeafe',
+            color: notificacao.tipo === 'erro' ? '#991b1b' : notificacao.tipo === 'sucesso' ? '#15803d' : '#1e40af',
+            border: '1px solid currentColor',
+            borderRadius: 8, padding: '12px 16px',
+            maxWidth: 480, fontSize: 14, fontWeight: 500,
+            boxShadow: '0 10px 15px rgba(0,0,0,0.1)',
+          }}
+        >
+          <button
+            onClick={() => setNotificacao(null)}
+            style={{
+              float: 'right', background: 'transparent', border: 'none',
+              color: 'inherit', cursor: 'pointer', marginLeft: 8, fontSize: 16, fontWeight: 700,
+            }}
+          >×</button>
+          {notificacao.mensagem}
+        </div>
+      )}
+
+      {/* Modal de confirmação custom (substitui window.confirm) */}
+      {confirmState && (
+        <ConfirmModal
+          open={!!confirmState}
+          titulo={confirmState.titulo || 'Confirmar'}
+          mensagem={confirmState.mensagem}
+          onConfirmar={() => onConfirmResposta(true)}
+          onCancelar={() => onConfirmResposta(false)}
+          textoConfirmar="Salvar e continuar"
+          textoCancelar="Cancelar"
+          cor="#16a34a"
+        />
+      )}
     </div>
   );
 }
