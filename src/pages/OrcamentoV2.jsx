@@ -581,14 +581,42 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
   // Comportamento:
   // - Se !orcamentoId: pede confirmação, salva primeiro, abre modal
   // - Se orcamentoId: validações rápidas e abre modal direto
-  const abrirModalPagamento = async () => {
-    if (itens.length === 0) {
-      alert('Adicione pelo menos um item antes de finalizar.');
+  // Botão "Finalizar agora" simplificado: apenas SALVA o orçamento como pendente
+  // (o fluxo de pagamento é opcional e fica num botão separado "Registrar venda").
+  // Validações inline (banner) — nunca bloqueia com alert/confirm nativos.
+  const handleFinalizar = async () => {
+    if (!clienteId) {
+      showErro('Selecione um cliente antes de salvar.');
       return;
     }
-    if (!clienteId) {
-      alert('Selecione um cliente antes de finalizar.');
+    if (itens.length === 0) {
+      showErro('Adicione pelo menos um item antes de salvar.');
       return;
+    }
+    if (orcamentoStatus === 'finalizado') {
+      showErro('Este orçamento já está finalizado. Use "Reabrir como pendente" se precisar.');
+      return;
+    }
+    try {
+      await handleSalvar({ showAlerts: false });
+      showSucesso('Orçamento salvo como pendente!');
+    } catch (err) {
+      showErro('Não foi possível salvar: ' + (err.message || ''));
+    }
+  };
+
+  // Botão "Registrar venda" (ex-Pagamento modal) — fluxo opcional de pagamento.
+  // Quando o usuário clica, abre o modal de pagamento para gerar Purchase + contas.
+  const abrirModalPagamento = async () => {
+    if (!clienteId || itens.length === 0) {
+      // Se precisar salvar antes, chama handleFinalizar primeiro
+      if (!orcamentoId) {
+        await handleSalvar({ showAlerts: false });
+      }
+      if (!clienteId || itens.length === 0) {
+        showErro('Cliente e itens são obrigatórios para registrar venda.');
+        return;
+      }
     }
     try {
       const lista = await taxaCartaoService.getAll();
@@ -598,39 +626,6 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       setTaxasCartao([]);
     }
     setShowPagamentoModal(true);
-  };
-
-  const handleFinalizar = async () => {
-    // Validações inline (sem alert — usa notificacao)
-    if (!clienteId) {
-      showErro('Selecione um cliente antes de finalizar.');
-      return;
-    }
-    if (itens.length === 0) {
-      showErro('Adicione pelo menos um item antes de finalizar.');
-      return;
-    }
-    if (orcamentoStatus === 'finalizado') {
-      showErro('Este orçamento já está finalizado.');
-      return;
-    }
-
-    if (!orcamentoId) {
-      // Salva o orçamento primeiro, depois abre modal de pagamento.
-      const prosseguiu = await pedirConfirmacao(
-        'O orçamento ainda não foi salvo.\nSalvar e abrir modal de pagamento agora?',
-        'Salvar e Finalizar'
-      );
-      if (!prosseguiu) return;
-      try {
-        await handleSalvar({ showAlerts: false, afterSave: () => abrirModalPagamento() });
-      } catch (err) {
-        console.error('Falha ao salvar antes de finalizar:', err);
-        showErro('Não foi possível salvar: ' + (err.message || ''));
-      }
-    } else {
-      await abrirModalPagamento();
-    }
   };
 
   // Confirma o pagamento: salva forma + taxa no orcamento, finaliza, dispara Meta.
@@ -1353,39 +1348,38 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
               </button>
               <button
                 onClick={handleFinalizar}
-                disabled={orcamentoStatus === 'finalizado' || finalizando}
-                title={
-                  orcamentoStatus === 'finalizado'
-                    ? 'Já finalizado'
-                    : !orcamentoId
-                    ? 'Salva o orçamento automaticamente e abre o modal de pagamento'
-                    : 'Marca o orçamento como venda efetuada (Purchase)'
-                }
+                disabled={orcamentoStatus === 'finalizado' || finalizando || salvando}
+                title="Salva o orçamento como PENDENTE — pronto para enviar ao cliente"
                 style={{
-                  marginTop: 8,
-                  width: '100%',
-                  padding: '12px 20px',
-                  background: (orcamentoStatus === 'finalizado' || finalizando) ? '#e5e7eb' : '#15803d',
-                  color: (orcamentoStatus === 'finalizado' || finalizando) ? '#9ca3af' : 'white',
-                  border: 'none',
-                  borderRadius: 6,
-                  cursor: (orcamentoStatus === 'finalizado' || finalizando) ? 'not-allowed' : 'pointer',
-                  fontWeight: 600,
-                  fontSize: 14
+                  marginTop: 8, width: '100%', padding: '12px 20px',
+                  background: (orcamentoStatus === 'finalizado' || finalizando || salvando) ? '#e5e7eb' : '#16a34a',
+                  color: (orcamentoStatus === 'finalizado' || finalizando || salvando) ? '#9ca3af' : 'white',
+                  border: 'none', borderRadius: 6,
+                  cursor: (orcamentoStatus === 'finalizado' || finalizando || salvando) ? 'not-allowed' : 'pointer',
+                  fontWeight: 600, fontSize: 14
                 }}
               >
-                {finalizando
-                  ? 'Finalizando…'
-                  : orcamentoStatus === 'finalizado'
-                  ? '✓ Finalizado (Purchase enviado)'
-                  : !orcamentoId
-                  ? 'Salvar e Finalizar agora →'
-                  : 'Finalizar agora (enviar Purchase)'}
+                {salvando ? 'Salvando…' : (orcamentoStatus === 'finalizado' ? '✓ Vendido' : '✓ Finalizar (Pendente)')}
               </button>
+
+              {/* Após finalizar (pendente), expõe botão "Marcar como vendido" */}
+              {orcamentoId && orcamentoStatus !== 'finalizado' && (
+                <button
+                  onClick={abrirModalPagamento}
+                  style={{
+                    marginTop: 6, width: '100%', padding: '8px 14px',
+                    background: '#15803d', color: 'white', border: 'none', borderRadius: 6,
+                    cursor: 'pointer', fontSize: 12, fontWeight: 600
+                  }}
+                  title="Abre o modal de pagamento (cartão/PIX/boleto), gera contas a pagar/receber e dispara Purchase na Meta"
+                >
+                  💳 Marcar como Vendido (com pagamento)
+                </button>
+              )}
 
               {!orcamentoId && (
                 <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4, textAlign: 'center' }}>
-                  💾 Será salvo automaticamente antes de finalizar.
+                  💾 Será salvo como PENDENTE. Após salvar, marque como vendido quando o cliente pagar.
                 </p>
               )}
             </div>
