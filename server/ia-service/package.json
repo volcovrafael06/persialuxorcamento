@@ -1,0 +1,15 @@
+{
+  "name": "persialux-ia-service",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Proxy local entre o frontend e o Ollama (gemma4) + indexação RAG com pgvector.",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0"
+  }
+}

@@ -27,6 +27,18 @@ export default defineConfig({
     }
   },
   server: {
-    sourcemap: true
+    sourcemap: true,
+    allowedHosts: true  // aceita qualquer Host (dev local)
+  },
+  preview: {
+    // Aceita requests via domínio (TLS no nginx) e via IP (dev/teste).
+    // Sem isso, vite preview retorna 403 quando o Host não bate.
+    allowedHosts: [
+      'localhost',
+      '127.0.0.1',
+      '167.126.31.192',
+      'saas-ads-rafa.comercial.ws',
+      '.comercial.ws'  // qualquer subdomínio (futuro)
+    ]
   }
 })

@@ -31,7 +31,7 @@ function calcSubtotal(produto, largura, altura, qty) {
   return base * q;
 }
 
-function OrcamentoV2({ products, customers, setCustomers, accessories }) {
+function OrcamentoV2({ products, customers, setCustomers, accessories, budgets, setBudgets }) {
   const navigate = useNavigate();
   const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const editBudgetId = params.get('budgetId') || null;
@@ -540,6 +540,26 @@ function OrcamentoV2({ products, customers, setCustomers, accessories }) {
       // Marca o orçamento como já persistido + status atual.
       setOrcamentoId(data.id);
       setOrcamentoStatus(data.status || 'pendente');
+
+      // Salva no IndexedDB local para manter cache consistente
+      try {
+        const { localDB } = await import('../services/localDatabase');
+        await localDB.put('orcamentos', data);
+      } catch (e) {
+        console.warn('[OrcamentoV2] falha ao salvar no cache local:', e?.message);
+      }
+
+      // Atualiza o estado budgets no App.jsx para que a lista reflita o orçamento
+      if (typeof setBudgets === 'function') {
+        setBudgets(prev => {
+          const exists = prev.some(b => b.id === data.id);
+          if (exists) {
+            return prev.map(b => b.id === data.id ? data : b);
+          }
+          return [data, ...prev];
+        });
+      }
+
       if (showAlerts) alert(orcamentoId ? 'Orçamento atualizado com sucesso!' : 'Orçamento criado com sucesso!');
       // Dispara Lead pra Meta CAPI (status=pendente). Best-effort — não bloqueia navegação.
       try {

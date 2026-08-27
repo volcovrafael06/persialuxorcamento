@@ -494,9 +494,37 @@ const podeAvancar = !!selection.linha
           {coresDoProduto.length > 0 && (
             <div className="cores-disponiveis">
               <h4>Cores disponíveis para este produto</h4>
-              <ul>
-                {coresDoProduto.map(c => <li key={c}>{c}</li>)}
+              <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {coresDoProduto.map(c => (
+                  <li key={c}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Seleciona a cor e adiciona o item direto ao orçamento
+                        // (atalho — equivalente a escolher a cor no select do passo 1
+                        // e clicar em Avançar duas vezes)
+                        const novaSelection = { ...selection, cor: c };
+                        setSelection(novaSelection);
+                        onSelect?.({ selection: novaSelection, customizacao, produto: produtoSelecionado });
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        padding: '4px 10px',
+                        border: selection.cor === c ? '2px solid #2563eb' : '1px solid #d1d5db',
+                        background: selection.cor === c ? '#dbeafe' : 'white',
+                        color: selection.cor === c ? '#1e3a8a' : '#374151',
+                        borderRadius: 16,
+                        fontSize: 13,
+                      }}
+                    >
+                      {c}
+                    </button>
+                  </li>
+                ))}
               </ul>
+              <p style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+                💡 Clique numa cor para adicioná-la automaticamente ao orçamento.
+              </p>
             </div>
           )}
 
