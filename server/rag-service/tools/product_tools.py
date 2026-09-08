@@ -193,6 +193,93 @@ def search_products(query: str, top_k: int = 5, categoria: str | None = None) ->
 
 
 
+def _search_ilike(q: str, sb, top_k: int = 5) -> list[dict]:
+    """Busca ILIKE com a query completa E com palavras-chave individuais.
+    Inclui mapeamento de sinônimos (ex: "tela solar" → "solflex", "screen").
+    CÓDIGOS (XXX-YY, MOT-XXX) são extraídos e buscados diretamente no campo codigo.
+    """
+    seen_ids: set[str] = set()
+    all_results: list[dict] = []
+
+    q_lower = q.lower().strip()
+
+    # --- 1) Extrai códigos (padrão XXX-YY, MOT-XXX, XX.YY, etc.) para busca exata ---
+    # Captura sequências tipo "120-02", "259-08", "MOT-220", "00.01"
+    # Que aparecem isoladas ou como palavras completas
+    # Extrai códigos via split: tokens >= 3 chars com dígito E traço/ponto
+    # Ex: "120-02", "259-08", "MOT-220" mas não "tela solar 5%"
+    tokens = re.split(r'[\s\.\,\(\)\/]+', q_lower)
+    codigos_limpos: list[str] = [
+        tok for tok in tokens
+        if len(tok) >= 3 and re.search(r'\d', tok) and re.search(r'[\-\.]', tok)
+    ]
+
+    # --- 2) Monta termos para busca semântica (query sem os códigos extraídos) ---
+    termos: set[str] = set()
+
+    # Query sem os códigos → depois remove dígitos para sinônimos
+    q_sem_codigos = q_lower
+    for cod in codigos_limpos:
+        q_sem_codigos = q_sem_codigos.replace(cod, " ")
+
+    # Termos da query limpa (sem dígitos, sem conectores)
+    q_sem_digitos = re.sub(r"[\d%]+", " ", q_sem_codigos).strip()
+    if q_sem_digitos:
+        termos.add(q_sem_digitos)
+
+    # Sinônimos baseados na query limpa
+    PADROES_PARA_SINONIMOS: dict[str, list[str]] = {
+        "tela solar": ["solflex", "screen", "tela solar"],
+        "screen":     ["solflex", "screen"],
+        "solflex":    ["solflex", "screen"],
+    }
+    for padrao, sinonimos in PADROES_PARA_SINONIMOS.items():
+        if padrao in q_sem_digitos:
+            termos.update(sinonimos)
+
+    # Divide em palavras (sem dígitos)
+    q_words = q_sem_digitos.split()
+    conectores = {"para", "com", "sem", "que", "mais", "barato", "barata", "uma", "um"}
+    for word in q_words:
+        if word in PADROES_PARA_SINONIMOS:
+            termos.update(PADROES_PARA_SINONIMOS[word])
+        elif len(word) >= 3 and word not in conectores:
+            termos.add(word)
+
+    # --- 3) Monta filtro OR: códigos no campo codigo, termos em todos campos ---
+    FIELDS = ["nome", "produto", "modelo"]
+    or_parts: list[str] = []
+
+    # Códigos → busca parcial/ilike no campo codigo
+    for codigo in codigos_limpos:
+        or_parts.append(f"codigo.ilike.%{codigo}%")
+
+    # Termos semânticos → busca em nome/produto/modelo
+    for termo in termos:
+        if termo.strip():
+            for f in FIELDS:
+                or_parts.append(f"{f}.ilike.%{termo}%")
+
+    or_filter = ",".join(or_parts)
+
+    resp = (
+        sb.from_("produtos")
+        .select("id, codigo, nome, preco_venda, modelo, tecido, metodo_calculo, area_minima")
+        .filter("produto", "not.is.null", "")
+        .or_(or_filter)
+        .limit(top_k * 8)
+        .execute()
+    )
+
+    seen_ids: set[str] = set()
+    all_results: list[dict] = []
+    for p in resp.data or []:
+        pid = p.get("id") or ""
+        if pid not in seen_ids and not _is_linha_de_grupo(p):
+            seen_ids.add(pid)
+            all_results.append(p)
+
+    return all_results[:top_k]
 @tool
 def search_by_code_or_name(query: str, top_k: int = 10) -> list[dict]:
     """Busca exata por código, nome, produto ou modelo (ILIKE).
@@ -203,29 +290,7 @@ def search_by_code_or_name(query: str, top_k: int = 10) -> list[dict]:
     sb = _supabase()
     try:
         q = query.strip()
-        # 1) Código exato (prioridade máxima)
-        resp = _base_query(sb, top_k).ilike("codigo", q).execute()
-        if resp.data:
-            return _filtrar_linhas_grupo(resp.data)
-
-        # 2) Nome OU produto OU modelo (OR) — busca disjuntiva
-        seen_ids = set()
-        all_results = []
-        for field in ["nome", "produto", "modelo"]:
-            resp_n = (
-                sb.from_("produtos")
-                .select("id, codigo, nome, preco_venda, modelo, tecido, metodo_calculo, area_minima")
-                .filter("produto", "not.is.null", "")
-                .filter(field, "ilike", f"%{q}%")
-                .limit(top_k)
-                .execute()
-            )
-            for p in resp_n.data or []:
-                if p["id"] not in seen_ids:
-                    seen_ids.add(p["id"])
-                    all_results.append(p)
-        if all_results:
-            return _filtrar_linhas_grupo(all_results)
+        return _search_ilike(q, sb, top_k)
     except Exception as e:
         return [{"error": str(e)}]
 

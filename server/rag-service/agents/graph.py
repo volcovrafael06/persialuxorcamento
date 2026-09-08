@@ -55,7 +55,7 @@ def node_search(state: GrafoEstado) -> dict:
                 "precisa_escolha": False, "opcoes": []}
 
     item = parsed["itens"][0]
-    result = hybrid_search(item, tools)
+    result = hybrid_search(item, tools, top_k=20)
     return {"search_result": result}
 
 
@@ -69,35 +69,37 @@ def node_validate(state: GrafoEstado) -> dict:
     item = parsed["itens"][0]
     chosen = validate(item, sr)
 
-    if chosen is None and len(sr.produtos) == 1:
-        # Só 1 candidato mas o validator não aceitou → força escolha
-        return {"produto_escolhido": None, "precisa_escolha": True,
-                "opcoes": sr.produtos[:5]}
-
     if chosen is None:
-        return {"produto_escolhido": None, "precisa_escolha": False, "opcoes": []}
-
-    # Se tinha múltiplos candidatos, calcula ambiguidade
-    if len(sr.produtos) == 1:
-        # Mesmo com 1 candidato, força escolha se não é código exato
-        codigo = (chosen.get("codigo") or "").lower()
-        query = (item.get("query") or "").lower()
-        if codigo and codigo in query:
-            return {"produto_escolhido": chosen, "precisa_escolha": False, "opcoes": []}
+        # Validator não conseguiu decidir → força escolha entre candidatos
         return {"produto_escolhido": None, "precisa_escolha": True,
-                "opcoes": sr.produtos[:5]}
+                "opcoes": sr.produtos[:20]}
 
-    # Verifica se o score do top-2 é muito menor que top-1
-    sorted_prods = sorted(sr.produtos, key=lambda p: p.get("score", 0), reverse=True)
-    if len(sorted_prods) > 1:
-        top1 = sorted_prods[0].get("score", 0)
-        top2 = sorted_prods[1].get("score", 0)
-        if top2 < top1 * 0.6:
-            return {"produto_escolhido": chosen, "precisa_escolha": False, "opcoes": []}
+    # Se tinha múltiplos candidatos E validator escolheu 1:
+    # - Código exato no chosen → aceita direto (match unambíguo)
+    # - Se o item não tem dimensões E chosen tem score >= 5.0: aceita direto
+    # - Caso contrário: pede escolha
+    n_candidatos = len(sr.produtos)
+    query_lower = (item.get("query") or "").lower()
+    chosen_codigo = (chosen.get("codigo") or "").lower() if chosen else ""
 
-    # Ambíguo — pede escolha
-    return {"produto_escolhido": chosen, "precisa_escolha": True,
-            "opcoes": sr.produtos[:5]}
+    # Código exato no produto escolhido → aceita direto (match unambíguo)
+    if chosen_codigo and chosen_codigo in query_lower:
+        return {"produto_escolhido": chosen, "precisa_escolha": False, "opcoes": []}
+
+    if n_candidatos > 1:
+        # Com dimensões E múltiplos candidatos: aceita direto se score alto
+        if item.get("dims_largura") and item.get("dims_altura") and best_score >= 5.0:
+            top3 = sr.produtos[:3]
+            nomes = [p.get("nome", "") for p in top3]
+            if any("—" in n or " - " in n for n in nomes):
+                return {"produto_escolhido": chosen, "precisa_escolha": False, "opcoes": []}
+
+        # Sem dimensões: ambiguidade de cor/modelo → força escolha
+        return {"produto_escolhido": None, "precisa_escolha": True,
+                "opcoes": sr.produtos[:20]}
+
+    # Único candidato
+    return {"produto_escolhido": chosen, "precisa_escolha": False, "opcoes": []}
 
 
 def node_finalize(state: GrafoEstado) -> dict:

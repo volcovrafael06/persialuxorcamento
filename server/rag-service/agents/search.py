@@ -3,6 +3,7 @@
 # Detecta categoria (rolo, screen, wave...) e usa índice FAISS específico.
 
 from __future__ import annotations
+import unicodedata
 
 import re
 from dataclasses import dataclass
@@ -44,7 +45,7 @@ class SearchResult:
     query_usada: str
 
 
-def hybrid_search(item: ItemExtraido, tools: dict, top_k: int = 5) -> SearchResult:
+def hybrid_search(item: ItemExtraido, tools: dict, top_k: int = 20) -> SearchResult:
     """Faz busca híbrida e aplica pós-filtros determinísticos."""
 
     query = item.get("query") or ""
@@ -75,7 +76,7 @@ def hybrid_search(item: ItemExtraido, tools: dict, top_k: int = 5) -> SearchResu
             produtos_sem.append(p)
 
     # 2) Busca exata por código/nome (ILIKE) — complemento
-    produtos_exatos = tools["search_by_code_or_name"].invoke({"query": query, "top_k": top_k})
+    produtos_exatos = tools["search_by_code_or_name"].invoke({"query": query, "top_k": top_k * 2})
     if not isinstance(produtos_exatos, list):
         produtos_exatos = []
 
@@ -99,12 +100,17 @@ def hybrid_search(item: ItemExtraido, tools: dict, top_k: int = 5) -> SearchResu
         modelo_campo = (p.get("modelo") or "").lower()
         tecido_campo = (p.get("tecido") or "").lower()
 
-        # Filtro por modelo (semântico + literal)
+        # Filtro por modelo (semântico + literal) — normaliza acentos
         if modelo_alvo:
             alvo_lower = modelo_alvo.lower()
-            # Precisa ter o modelo solicitado
+            # Texto normalizado sem acentos para comparação precisa
+            def _norm(s):
+                return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode()
+            texto_norm = " ".join([_norm(nome), _norm(prod_campo), _norm(modelo_campo)])
+            # Precisa ter o modelo solicitado (com ou sem acento)
             if alvo_lower not in nome and alvo_lower not in prod_campo and alvo_lower not in modelo_campo:
-                continue
+                if _norm(alvo_lower) not in texto_norm:
+                    continue
             # NÃO pode ter modelo conflitante
             if _tem_outro_modelo(p.get("nome", ""), p.get("produto", ""), p.get("modelo", ""), alvo_lower):
                 continue
