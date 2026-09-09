@@ -76,7 +76,7 @@ def node_validate(state: GrafoEstado) -> dict:
 
     # Se tinha múltiplos candidatos E validator escolheu 1:
     # - Código exato no chosen → aceita direto (match unambíguo)
-    # - Se o item não tem dimensões E chosen tem score >= 5.0: aceita direto
+    # - Com dimensões + score alto + múltiplos candidatos → aceita direto se cores diferentes
     # - Caso contrário: pede escolha
     n_candidatos = len(sr.produtos)
     query_lower = (item.get("query") or "").lower()
@@ -87,10 +87,11 @@ def node_validate(state: GrafoEstado) -> dict:
         return {"produto_escolhido": chosen, "precisa_escolha": False, "opcoes": []}
 
     if n_candidatos > 1:
-        # Com dimensões E múltiplos candidatos: aceita direto se score alto
-        if item.get("dims_largura") and item.get("dims_altura") and best_score >= 5.0:
+        # Com dimensões + múltiplos candidatos + nomes têm padrão de cor → aceita direto
+        if item.get("dims_largura") and item.get("dims_altura"):
             top3 = sr.produtos[:3]
             nomes = [p.get("nome", "") for p in top3]
+            # Se nomes têm padrão de cor (contêm " — " ou " - " = variação), aceita direto
             if any("—" in n or " - " in n for n in nomes):
                 return {"produto_escolhido": chosen, "precisa_escolha": False, "opcoes": []}
 

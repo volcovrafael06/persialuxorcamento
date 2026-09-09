@@ -84,7 +84,7 @@ async function embed(text) {
 // === RAG Search (busca híbrida semântica + ILIKE via RPC) ===
 app.post("/api/rag-search", async (req, res) => {
   try {
-    const { query, entity = "produtos", threshold = 0.65, limit = 8 } = req.body || {};
+    const { query, entity = "produtos", threshold = 0.30, limit = 10 } = req.body || {};
     if (!query) return res.status(400).json({ error: "query obrigatório" });
 
     let embedding;
@@ -300,19 +300,24 @@ const TOOLS = [
   },
 ];
 
-const SYSTEM_PROMPT = `Você é o assistente de orçamentos da PersiaLux (cortinas e persianas).
-Você ajuda vendedores brasileiros a montar orçamentos conversando em português natural.
+const SYSTEM_PROMPT = `Você é um assistente de orçamentos da PersiaLux (cortinas e persianas).
 
-REGRAS:
-1. SEMPRE use a tool buscar_produto quando o usuário mencionar um produto. Nunca invente códigos ou preços.
-2. Use a tool finalizar_orcamento APENAS quando o usuário disser explicitamente "finalizar", "pode salvar", "tá pronto", "fechar".
-3. Sempre confirme em linguagem natural o que adicionou (produto, dimensões, preço).
-4. Tom: profissional, conciso, amigável. Use emojis com moderação (🪟 ✨ 📐).
-5. Se o usuário fornecer dimensões em "1,5", interprete como 1.5 metros.
-6. Se a collection não tiver cor única (ex: Vertical Wave), não peça cor.
-7. Quando finalizar, dê o ID do orçamento criado e parabenize.
+REGRAS OBRIGATÓRIAS:
+1. RESPONDA EM ATÉ 1 FRASE CURTA.
+2. Se o [CONTEXTO] mostra que o cliente já tem NOME, TELEFONE ou ENDEREÇO, NÃO perunte novamente.
+3. Se o [CONTEXTO] mostra que JÁ EXISTEM ITENS no orçamento, faça referência a eles.
+4. Se o usuário já passou dimensões (2x1,5), confirme que adicionou.
+5. Se o usuário quer finalizar e tem cliente + itens, diga "Vou salvar o orçamento".
+6. JAMAIS repita perguntas cujas respostas já estão no contexto.
 
-Você recebe o orçamento em construção (draft) junto com cada mensagem — use para entender o contexto.`;
+USO DE TOOLS (sempre que aplicável):
+- SEMPRE que o usuário mencionar um código de produto (ex: "120-02", "259-08", "MOT-220"), nome de produto (ex: "cortina rolo", "persiana", "tela solar"), tecido (ex: "blackout", "screen"), ou dimensões (ex: "2x1,5"), CHAME a tool \`buscar_produto\` com o termo EXATO que o usuário digitou.
+- Quando o usuário falar de acessórios (motor, trilho, suporte, bandô), CHAME \`buscar_acessorio\`.
+- Quando ele disser "finalizar" / "pode salvar" / "está bom", CHAME \`finalizar_orcamento\`.
+- NUNCA invente preços ou nomes de produto — sempre use as tools primeiro.`;
+
+// URL do microsserviço RAG v2 (FastAPI + LangGraph + FAISS)
+const RAG_V2_URL = process.env.RAG_V2_URL || "http://127.0.0.1:8001";
 
 app.post("/api/chat", async (req, res) => {
   try {
@@ -322,62 +327,183 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // Compila system prompt + estado do orçamento em construção
-    const draftInfo = draft && (draft.cliente || (draft.itens || []).length > 0)
-      ? `\n\nESTADO ATUAL DO ORÇAMENTO:\n${JSON.stringify(draft, null, 2)}`
-      : "";
+    let draftInfo = "";
+    if (draft) {
+      const c = draft.cliente || {};
+      const temCliente = c.nome || c.telefone || c.endereco;
+      const temItens = (draft.itens || []).length > 0;
+
+      if (temCliente || temItens) {
+        draftInfo = "\n\n[CONTEXTO ATUAL]";
+        if (c.nome) draftInfo += `\nCliente: ${c.nome}`;
+        if (c.telefone) draftInfo += `\nTelefone: ${c.telefone}`;
+        if (c.endereco) draftInfo += `\nEndereço: ${c.endereco}`;
+        if (temItens) {
+          draftInfo += "\nItens no orçamento:";
+          (draft.itens || []).forEach((i, idx) => {
+            draftInfo += `\n${idx + 1}. ${i.produto?.nome || i.nome} - ${i.selection?.largura || 1}m x ${i.selection?.altura || 1}m - R$ ${(i.subtotal || 0).toFixed(2)}`;
+          });
+          draftInfo += `\nTotal: R$ ${(draft.total || 0).toFixed(2)}`;
+        }
+      }
+    }
 
     const fullMessages = [
       { role: "system", content: SYSTEM_PROMPT + draftInfo },
       ...messages,
     ];
 
-    // Loop de tool calls: Gemma pode pedir tools, executamos e voltamos
-    const toolCallLog = [];
-    let response;
-    for (let i = 0; i < 5; i++) {
+    // Loop com tools: Ollama pode chamar tool_calls (buscar_produto, etc)
+    // e a gente executa contra o RAG v2 / Supabase e devolve o resultado.
+    let ollamaMsgs = [...fullMessages];
+    let toolCallsExecuted = [];
+    let reply = "";
+    const maxIters = 3;
+    for (let i = 0; i < maxIters; i++) {
       const ollamaRes = await fetch(`${OLLAMA_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: OLLAMA_MODEL,
-          messages: fullMessages,
+          messages: ollamaMsgs,
           tools: TOOLS,
           stream: false,
-          options: { temperature: 0.3 },
+          think: false,
+          options: { temperature: 0.3, num_predict: 400 },
         }),
       });
       if (!ollamaRes.ok) {
         const txt = await ollamaRes.text();
         throw new Error(`Ollama chat failed: ${ollamaRes.status} ${txt}`);
       }
-      response = await ollamaRes.json();
+      const data = await ollamaRes.json();
+      const assistantMsg = data?.message || {};
+      const tcs = assistantMsg.tool_calls || [];
 
-      const toolCalls = response.message?.tool_calls;
-      if (!toolCalls || toolCalls.length === 0) break;
+      // Adiciona a resposta do assistant ao histórico
+      ollamaMsgs.push(assistantMsg);
 
-      fullMessages.push(response.message);
-
-      for (const tc of toolCalls) {
-        const fnName = tc.function?.name;
-        const args = tc.function?.arguments || {};
-        let toolResult;
-        try {
-          toolResult = await executeTool(fnName, args, req);
-        } catch (e) {
-          toolResult = { error: String(e.message || e) };
+      if (!tcs.length) {
+        reply = assistantMsg.content || "";
+        // Fallback inteligente: se Gemma não chamou tool mas a mensagem parece
+        // de produto (código, dimensões, keyword), força busca_produto no RAG.
+        const pareceProduto = _msgPareceProduto(messages);
+        if (pareceProduto) {
+          console.log(`[chat] Gemma ignorou tool — forçando buscar_produto para "${pareceProduto}"`);
+          const forced = await executeTool("buscar_produto", { query: pareceProduto, limit: 20 }, req);
+          toolCallsExecuted.push({ name: "buscar_produto", args: { query: pareceProduto }, result: forced, forced: true });
         }
-        toolCallLog.push({ tool: fnName, args, result: toolResult });
-        fullMessages.push({ role: "tool", content: JSON.stringify(toolResult) });
+        break;
+      }
+
+      // Executa cada tool_call e adiciona o resultado ao histórico
+      for (const tc of tcs) {
+        const fnName = tc.function?.name || tc.name;
+        let fnArgs = {};
+        try {
+          fnArgs = typeof tc.function?.arguments === "string"
+            ? JSON.parse(tc.function.arguments)
+            : (tc.function?.arguments || {});
+        } catch (_) {
+          fnArgs = {};
+        }
+        const toolResult = await executeTool(fnName, fnArgs, req);
+        toolCallsExecuted.push({ name: fnName, args: fnArgs, result: toolResult });
+        ollamaMsgs.push({
+          role: "tool",
+          content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult),
+        });
       }
     }
 
     res.json({
-      reply: response?.message?.content || "",
-      tool_calls: toolCallLog,
-      done: !response?.message?.tool_calls,
+      reply,
+      tool_calls: toolCallsExecuted,
+      done: true,
     });
   } catch (err) {
     console.error("[chat]", err);
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+/**
+ * Detecta se a mensagem do usuário parece ser de produto (código, tecido, dimensões)
+ * sem precisar do Gemma. Usado como fallback para forçar tool_call quando o Gemma erra.
+ */
+function _msgPareceProduto(messages) {
+  if (!messages?.length) return null;
+  const last = messages[messages.length - 1];
+  if (last?.role !== "user") return null;
+  const txt = (last.content || "").toLowerCase();
+  if (!txt.trim()) return null;
+  // Muito curta / só saudação → ignora
+  if (/^(oi|ol[aá]|bom dia|boa tarde|boa noite|tudo bem)\b/.test(txt.trim())) return null;
+  // Código XXX-YY (ex: 120-02, MOT-220)
+  if (/\b[a-z]*\d[\w\-]+\b/.test(txt)) return txt;
+  // Dimensões 2x1,5 / 2.0 x 1.5
+  if (/\d+([.,]\d+)?\s*[x×]\s*\d+/.test(txt)) return txt;
+  // Palavras-chave de produto
+  const kw = /\b(cortina|persiana|tela\s*solar|solflex|screen|blackout|rolo|rol[oô]|romana|wave|vertical|horizontal|plissada|painel|c[oó]digo|band[oô]|motor|trilho)\b/;
+  if (kw.test(txt)) return txt;
+  return null;
+}
+
+// =============================================================================
+// RAG v2 — DELEGA para microsserviço Python (:8001, LangGraph + FAISS)
+// Resolve busca estruturada com pós-filtragem robusta por modelo/tecido.
+// =============================================================================
+
+app.post("/api/resolve", async (req, res) => {
+  try {
+    const { message } = req.body || {};
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({ error: "message obrigatório" });
+    }
+
+    const timeoutMs = 30000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const resp = await fetch(`${RAG_V2_URL}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      const txt = await resp.text();
+      console.error(`[resolve] RAG v2 retornou ${resp.status}: ${txt.slice(0, 200)}`);
+      // Fallback gracioso: retorna resposta vazia para o chat decidir
+      return res.status(502).json({ error: `RAG v2 indisponível: ${resp.status}` });
+    }
+
+    const resultado = await resp.json();
+    console.log(`[resolve] msg="${message.slice(0, 50)}..." | tem_produto=${resultado?.item?.tem_produto} | estrategia=${resultado?.estrategia_busca}`);
+    res.json(resultado);
+  } catch (err) {
+    if (err.name === "AbortError") {
+      console.error("[resolve] RAG v2 timeout (>30s)");
+      return res.status(504).json({ error: "RAG v2 timeout" });
+    }
+    console.error("[resolve]", err);
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+app.post("/api/reindex", async (req, res) => {
+  try {
+    const { entity, dry_run } = req.body || {};
+    const resp = await fetch(`${RAG_V2_URL}/index`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity, dry_run }),
+    });
+    const data = await resp.json();
+    res.status(resp.ok ? 200 : 500).json(data);
+  } catch (err) {
     res.status(500).json({ error: String(err.message || err) });
   }
 });
@@ -386,29 +512,61 @@ async function executeTool(name, args, req) {
   switch (name) {
     case "buscar_produto":
     case "buscar_acessorio": {
-      const entity = name === "buscar_acessorio" ? "acessorios" : "produtos";
+      // Delega para o RAG v2 (LangGraph + FAISS + ILIKE corrigido)
+      // Suporta código (120-02), tecido (tela solar), modelo (cortina rolo), etc
       try {
-        const embedding = await embed(args.query);
-        const { data, error } = await supabaseAdmin.rpc(
-          entity === "acessorios" ? "search_acessorios_similar" : "search_produtos_similar",
-          {
-            query_embedding: embedding,
-            query_text: args.query,
-            match_threshold: 0.6,
-            match_count: args.limit || 5,
-          },
-        );
-        if (error) throw error;
-        return { results: data || [] };
+        const limit = args.limit || 20;
+        const resp = await fetch(`${RAG_V2_URL}/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: args.query }),
+        });
+        if (!resp.ok) {
+          // Fallback: rota antiga (embedding RPC)
+          throw new Error(`RAG v2 ${resp.status}`);
+        }
+        const data = await resp.json();
+        const item = data?.item || {};
+        const produto = item.produto;
+        const opcoes = (item.opcoes || []).slice(0, limit);
+
+        // Formato para o Gemma entender: 1 produto escolhido + lista de opções
+        const resultados = [];
+        if (produto) {
+          resultados.push({
+            escolhido: true,
+            id: produto.id,
+            codigo: produto.codigo,
+            nome: produto.nome,
+            preco_venda: produto.preco_venda,
+            tecido: produto.tecido,
+            modelo: produto.modelo,
+          });
+        }
+        for (const o of opcoes) {
+          resultados.push({
+            id: o.id,
+            codigo: o.codigo,
+            nome: o.nome,
+            preco_venda: o.preco_venda,
+          });
+        }
+        return {
+          query: args.query,
+          estrategia: data.estrategia_busca,
+          precisa_escolha: item.precisa_escolha || false,
+          total_encontrados: item.opcoes?.length || 0,
+          resultados,
+        };
       } catch (e) {
-        // Fallback textual
-        const table = entity === "acessorios" ? "produtos_acessorios" : "produtos";
+        console.error(`[buscar_produto] RAG v2 falhou: ${e.message}, usando fallback`);
+        const table = name === "buscar_acessorio" ? "produtos_acessorios" : "produtos";
         const { data } = await supabaseAdmin
           .from(table)
-          .select("id, codigo, nome, preco_venda, unit_price, metodo_calculo")
+          .select("id, codigo, nome, preco_venda, unit_price")
           .or(`nome.ilike.%${args.query}%,codigo.ilike.%${args.query}%`)
           .limit(args.limit || 5);
-        return { results: data || [], note: `fallback textual: ${e.message}` };
+        return { resultados: data || [], note: `fallback textual: ${e.message}` };
       }
     }
     case "detalhes_produto": {
