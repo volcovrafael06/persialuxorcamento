@@ -75,17 +75,20 @@ function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
   // Function to reactivate a budget
   const handleReactivateBudget = async (budgetId) => {
     try {
+      const nowIso = new Date().toISOString();
       const { error } = await supabase
         .from('orcamentos')
-        .update({ status: 'pendente' })
+        .update({ status: 'pendente', created_at: nowIso, updated_at: nowIso })
         .eq('id', budgetId);
 
       if (error) throw error;
 
-      await localDB.update('orcamentos', budgetId, { status: 'pendente' });
+      await localDB.update('orcamentos', budgetId, { status: 'pendente', created_at: nowIso, updated_at: nowIso });
 
       const updatedBudgets = budgets.map(budget =>
-        String(budget.id) === String(budgetId) ? { ...budget, status: 'pendente' } : budget
+        String(budget.id) === String(budgetId)
+          ? { ...budget, status: 'pendente', created_at: nowIso, updated_at: nowIso }
+          : budget
       );
       setBudgets(updatedBudgets);
       alert(`Orçamento reativado com sucesso.`);

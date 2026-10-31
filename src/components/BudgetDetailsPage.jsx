@@ -228,7 +228,11 @@ function BudgetDetailsPage({ companyLogo }) {
   };
 
   const calculateValidadeDate = (createdAt, validadeDias) => {
-    return new Date(new Date(createdAt).getTime() + validadeDias * 24 * 60 * 60 * 1000).toLocaleDateString();
+    if (!createdAt) return '-';
+    const date = new Date(createdAt);
+    if (isNaN(date.getTime())) return '-';
+    const days = parseInt(validadeDias, 10) || 30;
+    return new Date(date.getTime() + days * 24 * 60 * 60 * 1000).toLocaleDateString();
   };
 
   const buildPdfRows = () => {
@@ -350,7 +354,7 @@ function BudgetDetailsPage({ companyLogo }) {
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
       doc.text(`Data: ${new Date(budget.created_at).toLocaleDateString()}`, 14, 52);
-      doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}`, 14, 57);
+      doc.text(`Válido até: ${calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 30)}`, 14, 57);
       
       if (budget.vendedores) {
         doc.text(`Vendedor: ${budget.vendedores.nome}`, 14, 62);
@@ -592,7 +596,7 @@ function BudgetDetailsPage({ companyLogo }) {
         <div className="budget-header">
           <h2>Orçamento #{budget.numero_orcamento || budget.id}</h2>
           <p>Data do Orçamento: {new Date(budget.created_at).toLocaleDateString()}</p>
-          <p>Válido até: {calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 7)}</p>
+          <p>Válido até: {calculateValidadeDate(budget.created_at, companyData?.validade_orcamento || 30)}</p>
           {budget.vendedores && (
             <p><strong>Vendedor:</strong> {budget.vendedores.nome}</p>
           )}

@@ -1294,6 +1294,8 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         };
       });
 
+      const nowIso = new Date().toISOString();
+
       const budgetData = {
         cliente_id: newBudget.customer?.id,
         vendedor_id: newBudget.seller?.id || newBudget.vendedor?.id || null,
@@ -1302,7 +1304,9 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         observacao: newBudget.observation || '',
         acessorios_json: JSON.stringify(cleanAccessories),
         valor_negociado: newBudget.negotiatedValue,
-        ...(!isEditing ? { status: 'pendente' } : {}),
+        status: 'pendente', // Ao criar ou editar, o orçamento volta a ficar válido (pendente)
+        created_at: nowIso, // Ao editar, renova a data de emissão/criação para reiniciar o prazo de validade
+        updated_at: nowIso,
         payment_method: (newBudget.paymentConditions[0]?.method) || newBudget.paymentMethod,
         payment_installments: (newBudget.paymentConditions[0]?.installments) ?? newBudget.paymentInstallments,
         payment_tax_rate: (newBudget.paymentConditions[0]?.taxRate) ?? newBudget.paymentTaxRate,

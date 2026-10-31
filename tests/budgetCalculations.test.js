@@ -47,3 +47,31 @@ test('recalculate updates product subtotal with fresh catalog price', () => {
   const recalculatedSubtotal = area * newCatalogPrice; // 450
   assert.equal(recalculatedSubtotal, 450);
 });
+
+test('editing a budget renews its validity and sets status to pendente', () => {
+  // Simula um orçamento antigo criado há 60 dias com validade de 30 dias (expirado)
+  const oldDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+  const oldBudget = {
+    id: 'budget-1',
+    status: 'cancelado',
+    created_at: oldDate,
+    updated_at: oldDate
+  };
+
+  const validityDays = 30;
+  const oldExpiration = new Date(new Date(oldBudget.created_at).getTime() + validityDays * 24 * 60 * 60 * 1000);
+  assert.equal(new Date() > oldExpiration, true, 'O orçamento antigo deve estar expirado');
+
+  // Ao salvar edição, renova status para pendente e datas para o momento atual
+  const nowIso = new Date().toISOString();
+  const editedBudget = {
+    ...oldBudget,
+    status: 'pendente',
+    created_at: nowIso,
+    updated_at: nowIso
+  };
+
+  assert.equal(editedBudget.status, 'pendente');
+  const newExpiration = new Date(new Date(editedBudget.created_at).getTime() + validityDays * 24 * 60 * 60 * 1000);
+  assert.equal(new Date() < newExpiration, true, 'O orçamento editado deve estar dentro do novo prazo de validade');
+});

@@ -107,7 +107,10 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
   const handleReactivate = async (id) => {
     if (onReactivateBudget) {
       await onReactivateBudget(id);
-      setLocalBudgets(prev => prev.map(b => String(b.id) === String(id) ? { ...b, status: 'pendente' } : b));
+      const nowIso = new Date().toISOString();
+      setLocalBudgets(prev => prev.map(b =>
+        String(b.id) === String(id) ? { ...b, status: 'pendente', created_at: nowIso, updated_at: nowIso } : b
+      ));
     }
   };
 
@@ -119,19 +122,24 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
   };
 
   const calculateExpirationDate = (creationDate, validadeOrcamento) => {
+    if (!creationDate) return null;
     const creation = new Date(creationDate);
-    const validityDays = parseInt(validadeOrcamento, 10);
-    const expirationDate = new Date(creation.setDate(creation.getDate() + validityDays));
+    if (isNaN(creation.getTime())) return null;
+    const validityDays = parseInt(validadeOrcamento, 10) || 30;
+    const expirationDate = new Date(creation.getTime() + validityDays * 24 * 60 * 60 * 1000);
     return expirationDate;
   };
 
   const isExpired = (creationDate, validadeOrcamento) => {
     const expirationDate = calculateExpirationDate(creationDate, validadeOrcamento);
+    if (!expirationDate) return false;
     return new Date() > expirationDate;
   };
 
   const formatDate = (date) => {
-    return new Date(date).toLocaleDateString();
+    if (!date) return '-';
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
   };
 
   const getCustomerDisplayName = (budget) => {
