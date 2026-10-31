@@ -227,124 +227,236 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
     loadTrilhosConfig();
   }, []);
 
+  const safeParseArray = (raw) => {
+    if (raw == null) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        console.warn('safeParseArray falhou ao converter string:', e);
+        return [];
+      }
+    }
+    return [];
+  };
+
   useEffect(() => {
     if (isEditing && budgetId) {
       const loadBudgetData = async () => {
         try {
+          setLoading(true);
           console.log('Loading budget for editing:', budgetId);
           
-          const { data: budget, error } = await supabase
-            .from('orcamentos')
-            .select(`
-              *,
-              clientes (
-                id,
-                name,
-                email,
-                phone,
-                address
-              ),
-              vendedores (
-                id,
-                nome
-              )
-            `)
-            .eq('id', budgetId)
-            .single();
-
-          if (error) throw error;
-          
-          console.log('Loaded budget:', budget);
-          
-          let products = [];
-          let accessories = [];
-
+          let budget = null;
           try {
-            products = JSON.parse(budget.produtos_json || '[]');
-            accessories = JSON.parse(budget.acessorios_json || '[]');
-            
-            products = products.map(p => {
-              const fullProduct = initialProducts?.find(prod => prod.id === p.produto_id) || {};
-              return {
-                product: fullProduct,
-                width: p.input_width || p.largura || '',
-                height: p.input_height || p.altura || '',
-                inputWidth: p.input_width || p.largura || '',
-                inputHeight: p.input_height || p.altura || '',
-                ambiente: p.ambiente || '',
-                bando: p.bando || false,
-                bandoValue: p.valor_bando || 0,
-                bandoCusto: p.valor_bando_custo || 0,
-                installation: p.instalacao || false,
-                installationValue: p.valor_instalacao || 0,
-                trilho_tipo: p.trilho_tipo || '',
-                valor_trilho: p.valor_trilho || 0,
-                painel: p.painel || false,
-                numFolhas: p.num_folhas || 1,
-                subtotal: p.subtotal || 0,
-                usedMinimum: false // Add this since we're using existing values
-              };
-            });
+            const { data, error } = await supabase
+              .from('orcamentos')
+              .select(`
+                *,
+                clientes (
+                  id,
+                  name,
+                  email,
+                  phone,
+                  address
+                ),
+                vendedores (
+                  id,
+                  nome
+                )
+              `)
+              .eq('id', budgetId)
+              .maybeSingle();
 
-            accessories = accessories.map(a => {
-              const fullAccessory = initialAccessories?.find(acc => acc.id === a.accessory_id) || {};
-              return {
-                accessory: fullAccessory,
-                color: a.color || '',
-                quantity: a.quantity || 1,
-                subtotal: a.subtotal || 0
-              };
-            });
-
+            if (error) {
+              console.warn('Erro ao carregar orçamento do Supabase:', error);
+            } else if (data) {
+              budget = data;
+            }
           } catch (e) {
-            console.error('Error parsing budget data:', e);
+            console.warn('Falha na chamada do Supabase:', e);
           }
 
-          console.log('Processed products:', products);
-          console.log('Processed accessories:', accessories);
+          // Fallback para cache local (IndexedDB) ou props se o Supabase não retornar
+          if (!budget) {
+            budget = await localDB.get('orcamentos', budgetId);
+            if (!budget && budgets && budgets.length > 0) {
+              budget = budgets.find(b => String(b.id) === String(budgetId));
+            }
+          }
+
+          if (!budget) {
+            throw new Error(`Orçamento com ID ${budgetId} não foi encontrado.`);
+          }
+          
+          console.log('Loaded budget:', budget);
+
+          // Verificar e recuperar cliente se o join vier vazio mas tiver cliente_id
+          let resolvedCustomer = budget.clientes;
+          if ((!resolvedCustomer || !resolvedCustomer.id) && budget.cliente_id) {
+            resolvedCustomer = (localCustomers || []).find(c => String(c.id) === String(budget.cliente_id));
+            if (!resolvedCustomer) {
+              resolvedCustomer = await localDB.get('clientes', budget.cliente_id);
+            }
+            if (!resolvedCustomer) {
+              const { data: cData } = await supabase.from('clientes').select('*').eq('id', budget.cliente_id).maybeSingle();
+              if (cData) resolvedCustomer = cData;
+            }
+          }
+
+          // Verificar e recuperar vendedor se o join vier vazio mas tiver vendedor_id
+          let resolvedSeller = budget.vendedores;
+          if ((!resolvedSeller || !resolvedSeller.id) && budget.vendedor_id) {
+            resolvedSeller = (sellers || []).find(s => String(s.id) === String(budget.vendedor_id));
+            if (!resolvedSeller) {
+              const { data: sData } = await supabase.from('vendedores').select('*').eq('id', budget.vendedor_id).maybeSingle();
+              if (sData) resolvedSeller = sData;
+            }
+          }
+
+          // Obter lista atual de produtos para mapeamento
+          let availableProducts = (initialProducts && initialProducts.length > 0) ? initialProducts : products;
+          if (!availableProducts || availableProducts.length === 0) {
+            availableProducts = await localDB.getAll('produtos');
+            if (!availableProducts || availableProducts.length === 0) {
+              const { data: pData } = await supabase.from('produtos').select('*');
+              if (pData) availableProducts = pData;
+            }
+            if (availableProducts && availableProducts.length > 0) {
+              setProducts(availableProducts);
+            }
+          }
+
+          // Obter lista atual de acessórios para mapeamento
+          let availableAccessories = (initialAccessories && initialAccessories.length > 0) ? initialAccessories : accessoriesList;
+          if (!availableAccessories || availableAccessories.length === 0) {
+            availableAccessories = await localDB.getAll('accessories');
+            if (!availableAccessories || availableAccessories.length === 0) {
+              const { data: aData } = await supabase.from('accessories').select('*');
+              if (aData) availableAccessories = aData;
+            }
+            if (availableAccessories && availableAccessories.length > 0) {
+              setAccessoriesList(availableAccessories);
+            }
+          }
+
+          const rawProducts = budget.produtos_json != null ? budget.produtos_json : budget.produtos;
+          const rawAccessories = budget.acessorios_json != null ? budget.acessorios_json : budget.acessorios;
+
+          const parsedProducts = safeParseArray(rawProducts);
+          const parsedAccessories = safeParseArray(rawAccessories);
+
+          const mappedProducts = parsedProducts.map(p => {
+            const prodId = p.produto_id || p.produto?.id || p.id;
+            const fullProduct = (availableProducts || []).find(prod => String(prod.id) === String(prodId))
+              || p.produto
+              || p.product
+              || { id: prodId, nome: p.nome || 'Produto' };
+
+            const inW = parseFloat(p.input_width != null ? p.input_width : p.largura) || 0;
+            const inH = parseFloat(p.input_height != null ? p.input_height : p.altura) || 0;
+            const dims = calculateDimensions(fullProduct, inW, inH, !!p.painel);
+
+            return {
+              product: fullProduct,
+              produto: fullProduct,
+              produto_id: prodId,
+              width: dims.width,
+              height: dims.height,
+              inputWidth: inW,
+              inputHeight: inH,
+              ambiente: p.ambiente || '',
+              quantity: parseInt(p.quantity || p.quantidade) || 1,
+              bando: !!p.bando,
+              bandoValue: parseFloat(p.valor_bando != null ? p.valor_bando : p.bandoValue) || 0,
+              bandoCusto: parseFloat(p.valor_bando_custo != null ? p.valor_bando_custo : p.bandoCusto) || 0,
+              installation: !!(p.instalacao != null ? p.instalacao : p.installation),
+              installationValue: parseFloat(p.valor_instalacao != null ? p.valor_instalacao : p.installationValue) || 0,
+              trilho_tipo: p.trilho_tipo || '',
+              valor_trilho: parseFloat(p.valor_trilho) || 0,
+              painel: !!p.painel,
+              numFolhas: parseInt(p.num_folhas != null ? p.num_folhas : p.numFolhas) || 1,
+              subtotal: parseFloat(p.subtotal) || 0,
+              usedMinimum: dims.usedMinimum || !!p.usedMinimum,
+              area: dims.area
+            };
+          });
+
+          const mappedAccessories = parsedAccessories.map(a => {
+            const accId = a.accessory_id || a.accessory?.id || a.id;
+            let fullAccessory = (availableAccessories || []).find(acc => String(acc.id) === String(accId))
+              || a.accessory
+              || { id: accId, name: a.name || 'Acessório', colors: [] };
+
+            let colors = fullAccessory.colors;
+            if (typeof colors === 'string') {
+              try { colors = JSON.parse(colors); } catch { colors = []; }
+            }
+            if (!Array.isArray(colors)) colors = [];
+            fullAccessory = { ...fullAccessory, colors };
+
+            return {
+              accessory: fullAccessory,
+              accessory_id: accId,
+              color: a.color || '',
+              quantity: parseFloat(a.quantity) || 1,
+              subtotal: parseFloat(a.subtotal) || 0
+            };
+          });
+
+          const paymentConditions = (() => {
+            const rawPc = budget.payment_conditions;
+            if (Array.isArray(rawPc)) return rawPc;
+            if (typeof rawPc === 'string') {
+              try {
+                const parsed = JSON.parse(rawPc);
+                if (Array.isArray(parsed)) return parsed;
+              } catch {}
+            }
+            const arr = [];
+            if (budget.payment_method === 'credit_card') {
+              arr.push({
+                method: 'credit_card',
+                installments: parseInt(budget.payment_installments) || 0,
+                taxRate: parseFloat(budget.payment_tax_rate) || 0
+              });
+            } else if (budget.payment_method === 'pix') {
+              arr.push({
+                method: 'pix',
+                discountRate: parseFloat(budget.payment_discount_rate) || 0
+              });
+            }
+            return arr;
+          })();
 
           setNewBudget({
-            customer: budget.clientes,
-            vendedor: budget.vendedores || null,
-            products,
-            accessories,
+            customer: resolvedCustomer || null,
+            seller: resolvedSeller || null,
+            vendedor: resolvedSeller || null,
+            products: mappedProducts,
+            accessories: mappedAccessories,
             observation: budget.observacao || '',
-            totalValue: budget.valor_total || 0,
-            negotiatedValue: budget.valor_negociado,
+            totalValue: parseFloat(budget.valor_total) || 0,
+            negotiatedValue: budget.valor_negociado != null ? parseFloat(budget.valor_negociado) : null,
             paymentMethod: budget.payment_method || 'standard',
-            paymentInstallments: budget.payment_installments || 0,
-            paymentTaxRate: budget.payment_tax_rate || 0,
-            paymentDiscountRate: budget.payment_discount_rate || 0,
-            paymentConditions: (() => {
-              try {
-                const pcs = budget.payment_conditions ? JSON.parse(budget.payment_conditions) : null;
-                if (Array.isArray(pcs)) return pcs;
-              } catch {}
-              const arr = [];
-              if (budget.payment_method === 'credit_card') {
-                arr.push({
-                  method: 'credit_card',
-                  installments: budget.payment_installments || 0,
-                  taxRate: budget.payment_tax_rate || 0
-                });
-              } else if (budget.payment_method === 'pix') {
-                arr.push({
-                  method: 'pix',
-                  discountRate: budget.payment_discount_rate || 0
-                });
-              }
-              return arr;
-            })()
+            paymentInstallments: parseInt(budget.payment_installments) || 0,
+            paymentTaxRate: parseFloat(budget.payment_tax_rate) || 0,
+            paymentDiscountRate: parseFloat(budget.payment_discount_rate) || 0,
+            paymentConditions
           });
         } catch (error) {
           console.error('Error loading budget:', error);
-          setError('Erro ao carregar orçamento');
+          setError(`Erro ao carregar orçamento: ${error.message || 'Erro desconhecido'}`);
+        } finally {
+          setLoading(false);
         }
       };
 
       loadBudgetData();
     }
-  }, [isEditing, budgetId, initialProducts, initialAccessories]);
+  }, [isEditing, budgetId]);
 
   const calculateDimensions = (product, width, height, isPainel = false) => {
     const inputWidth = parseFloat(width) || 0;
@@ -445,14 +557,15 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
   };
 
   const calculateProductSubtotal = (product = currentProduct) => {
-    if (!product.product) return 0;
+    if (!product || !product.product) return 0;
 
     let subtotal = 0;
+    let basePrice = 0;
     
     const dimensions = calculateDimensions(
       product.product,
-      product.width,
-      product.height,
+      product.inputWidth != null ? product.inputWidth : product.width,
+      product.inputHeight != null ? product.inputHeight : product.height,
       product.painel
     );
 
@@ -474,10 +587,20 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
     if (product.product?.modelo?.toUpperCase() === 'WAVE') {
       // Para modelo Wave, calcula o preço base pela altura
-      const wave_pricing = JSON.parse(product.product.wave_pricing_data || '[]');
+      let wave_pricing = [];
+      const rawWave = product.product.wave_pricing_data;
+      if (Array.isArray(rawWave)) {
+        wave_pricing = rawWave;
+      } else if (typeof rawWave === 'string') {
+        try {
+          wave_pricing = JSON.parse(rawWave);
+        } catch {
+          wave_pricing = [];
+        }
+      }
+
       const heightInMeters = parseFloat(height) || 0;
       
-      let basePrice = 0;
       for (const tier of wave_pricing) {
         if (heightInMeters >= tier.min_height && heightInMeters <= tier.max_height) {
           basePrice = parseFloat(tier.price) || 0;
@@ -499,14 +622,15 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       
       // Adiciona o valor do trilho se selecionado
       if (product.trilho_tipo && product.valor_trilho > 0) {
+        const railVal = parseFloat(product.valor_trilho) || 0;
         console.log('Adicionando valor do trilho:', {
           tipo: product.trilho_tipo,
           valorConfigurado: trilhosConfig[product.trilho_tipo],
-          valorCalculado: product.valor_trilho,
+          valorCalculado: railVal,
           subtotalAntes: subtotal,
-          subtotalDepois: subtotal + product.valor_trilho
+          subtotalDepois: subtotal + railVal
         });
-        subtotal += product.valor_trilho;
+        subtotal += railVal;
       }
     } else {
       const price = parseFloat(product.product.preco_venda) || 0;
@@ -540,7 +664,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
     // Adiciona valor do bandô se marcado
     if (product.bando && product.bandoValue) {
-      const bandoValue = parseFloat(product.bandoValue);
+      const bandoValue = parseFloat(product.bandoValue) || 0;
       console.log('Adicionando bandô:', {
         valor: bandoValue,
         subtotalAntes: subtotal,
@@ -551,7 +675,7 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
     // Adiciona valor da instalação se marcada
     if (product.installation && product.installationValue) {
-      const installationValue = parseFloat(product.installationValue);
+      const installationValue = parseFloat(product.installationValue) || 0;
       console.log('Adicionando instalação:', {
         valor: installationValue,
         subtotalAntes: subtotal,
@@ -1129,47 +1253,50 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
       setLoading(true);
       setError(null);
 
-      const cleanProducts = newBudget.products.map(product => ({
-        produto_id: product.product.id,
-        // Preserva o snapshot do produto para que o PDF/impressão consigam
-        // exibir nome/modelo/tecido/código mesmo se a busca por id falhar
-        // (RLS bloqueando, cache desatualizado, etc.). Esses campos também
-        // aparecem em orçamento reemitido muito depois do cadastro.
-        produto: {
-          id: product.product.id,
-          nome: product.product.nome,
-          modelo: product.product.modelo,
-          tecido: product.product.tecido,
-          codigo: product.product.codigo,
-          metodo_calculo: product.product.metodo_calculo
-        },
-        largura: parseFloat(product.width),
-        altura: product.height ? parseFloat(product.height) : null,
-        input_width: parseFloat(product.inputWidth) || parseFloat(product.width),
-        input_height: product.inputHeight ? parseFloat(product.inputHeight) : (product.height ? parseFloat(product.height) : null),
-        ambiente: product.ambiente || '',
-        bando: product.bando,
-        valor_bando: product.bandoValue,
-        valor_bando_custo: product.bandoCusto,
-        instalacao: product.installation,
-        valor_instalacao: parseFloat(product.installationValue),
-        trilho_tipo: product.trilho_tipo,
-        valor_trilho: product.valor_trilho,
-        painel: product.painel,
-        num_folhas: product.numFolhas,
-        subtotal: product.subtotal
-      }));
+      const cleanProducts = newBudget.products.map(product => {
+        const prodId = product.product?.id || product.produto_id || product.produto?.id;
+        const prodObj = product.product || product.produto || {};
+        return {
+          produto_id: prodId,
+          produto: {
+            id: prodId,
+            nome: prodObj.nome || prodObj.name || '',
+            modelo: prodObj.modelo || '',
+            tecido: prodObj.tecido || '',
+            codigo: prodObj.codigo || '',
+            metodo_calculo: prodObj.metodo_calculo || ''
+          },
+          largura: parseFloat(product.width) || 0,
+          altura: product.height ? parseFloat(product.height) : null,
+          input_width: parseFloat(product.inputWidth != null ? product.inputWidth : product.width) || 0,
+          input_height: product.inputHeight ? parseFloat(product.inputHeight) : (product.height ? parseFloat(product.height) : null),
+          ambiente: product.ambiente || '',
+          bando: !!product.bando,
+          valor_bando: parseFloat(product.bandoValue) || 0,
+          valor_bando_custo: parseFloat(product.bandoCusto) || 0,
+          instalacao: !!product.installation,
+          valor_instalacao: parseFloat(product.installationValue) || 0,
+          trilho_tipo: product.trilho_tipo || '',
+          valor_trilho: parseFloat(product.valor_trilho) || 0,
+          painel: !!product.painel,
+          num_folhas: parseInt(product.numFolhas) || 1,
+          subtotal: parseFloat(product.subtotal) || 0
+        };
+      });
 
-      const cleanAccessories = newBudget.accessories.map(accessory => ({
-        accessory_id: accessory.accessory.id,
-        color: accessory.color,
-        quantity: parseFloat(accessory.quantity), // Usar parseFloat para permitir valores decimais
-        subtotal: accessory.subtotal
-      }));
+      const cleanAccessories = newBudget.accessories.map(accessory => {
+        const accId = accessory.accessory?.id || accessory.accessory_id;
+        return {
+          accessory_id: accId,
+          color: accessory.color || '',
+          quantity: parseFloat(accessory.quantity) || 1,
+          subtotal: parseFloat(accessory.subtotal) || 0
+        };
+      });
 
       const budgetData = {
-        cliente_id: newBudget.customer.id,
-        vendedor_id: newBudget.seller?.id || null,
+        cliente_id: newBudget.customer?.id,
+        vendedor_id: newBudget.seller?.id || newBudget.vendedor?.id || null,
         valor_total: newBudget.totalValue,
         produtos_json: JSON.stringify(cleanProducts),
         observacao: newBudget.observation || '',
@@ -1210,6 +1337,8 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         }
         result = data;
 
+        await localDB.put('orcamentos', result);
+
         setBudgets(prev => prev.map(b =>
           String(b.id) === String(budgetId) ? { ...b, ...result } : b
         ));
@@ -1236,6 +1365,8 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
         }
         result = data;
 
+        await localDB.put('orcamentos', result);
+
         setBudgets(prev => [...prev, result]);
       }
 
@@ -1243,6 +1374,186 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
     } catch (error) {
       console.error('Detailed error:', error);
       setError(`Erro ao salvar orçamento: ${error.message || 'Erro desconhecido'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecalculateBudget = async () => {
+    if (newBudget.products.length === 0 && newBudget.accessories.length === 0) {
+      alert('Não há produtos ou acessórios para recalcular.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Busca dados atualizados do banco/cache para garantir preços recentes
+      const [freshProducts, freshAccessories, freshConfigs, freshRails] = await Promise.all([
+        supabase.from('produtos').select('*').then(res => res.data || []).catch(() => []),
+        supabase.from('accessories').select('*').then(res => res.data || []).catch(() => []),
+        supabase.from('configuracoes').select('bando_custo, bando_venda').maybeSingle().then(res => res.data).catch(() => null),
+        supabase.from('rail_pricing').select('*').then(res => res.data || []).catch(() => [])
+      ]);
+
+      const activeProducts = freshProducts.length > 0 
+        ? freshProducts 
+        : (products.length > 0 ? products : await localDB.getAll('produtos'));
+      const activeAccessories = freshAccessories.length > 0 
+        ? freshAccessories 
+        : (accessoriesList.length > 0 ? accessoriesList : await localDB.getAll('accessories'));
+
+      const currentBando = {
+        custo: freshConfigs?.bando_custo != null ? parseFloat(freshConfigs.bando_custo) : bandoConfig.custo || 80,
+        venda: freshConfigs?.bando_venda != null ? parseFloat(freshConfigs.bando_venda) : bandoConfig.venda || 120
+      };
+      if (freshConfigs) setBandoConfig(currentBando);
+
+      const currentTrilhosConfig = { ...trilhosConfig };
+      if (freshRails && freshRails.length > 0) {
+        freshRails.forEach(item => {
+          currentTrilhosConfig[item.rail_type] = {
+            sale_price: parseFloat(item.sale_price) || 0
+          };
+        });
+        setTrilhosConfig(currentTrilhosConfig);
+      }
+
+      if (activeProducts.length > 0) setProducts(activeProducts);
+      if (activeAccessories.length > 0) setAccessoriesList(activeAccessories);
+
+      // Função auxiliar para recalcular trilho
+      const getRailPrice = (width, railType) => {
+        if (!railType || !currentTrilhosConfig[railType]) return 0;
+        const basePrice = parseFloat(currentTrilhosConfig[railType]?.sale_price) || 0;
+        const widthNum = parseFloat(width) || 0;
+        return widthNum * basePrice;
+      };
+
+      // Recalcular produtos
+      let updatedProductsCount = 0;
+      const recalculatedProducts = newBudget.products.map(item => {
+        const prodId = item.product?.id || item.produto_id || item.produto?.id;
+        const latestProd = (activeProducts || []).find(p => String(p.id) === String(prodId)) || item.product || item.produto;
+
+        const inW = parseFloat(item.inputWidth != null ? item.inputWidth : item.width) || 0;
+        const inH = parseFloat(item.inputHeight != null ? item.inputHeight : item.height) || 0;
+        const dims = calculateDimensions(latestProd, inW, inH, !!item.painel);
+
+        let bandoVal = parseFloat(item.bandoValue) || 0;
+        let bandoCost = parseFloat(item.bandoCusto) || 0;
+        if (item.bando) {
+          bandoVal = dims.width * currentBando.venda;
+          bandoCost = dims.width * currentBando.custo;
+        }
+
+        let railVal = parseFloat(item.valor_trilho) || 0;
+        if (item.trilho_tipo) {
+          railVal = getRailPrice(dims.width, item.trilho_tipo);
+        }
+
+        const itemForSubtotal = {
+          ...item,
+          product: latestProd,
+          produto: latestProd,
+          inputWidth: inW,
+          inputHeight: inH,
+          width: dims.width,
+          height: dims.height,
+          bando: !!item.bando,
+          bandoValue: bandoVal,
+          bandoCusto: bandoCost,
+          installation: !!item.installation,
+          installationValue: parseFloat(item.installationValue) || 0,
+          trilho_tipo: item.trilho_tipo || '',
+          valor_trilho: railVal,
+          painel: !!item.painel,
+          numFolhas: parseInt(item.numFolhas) || 1
+        };
+
+        const newSubtotal = calculateProductSubtotal(itemForSubtotal);
+        updatedProductsCount++;
+
+        return {
+          ...itemForSubtotal,
+          subtotal: newSubtotal,
+          area: dims.area,
+          usedMinimum: dims.usedMinimum
+        };
+      });
+
+      // Recalcular acessórios
+      let updatedAccessoriesCount = 0;
+      const recalculatedAccessories = newBudget.accessories.map(acc => {
+        const accId = acc.accessory?.id || acc.accessory_id;
+        const latestAcc = (activeAccessories || []).find(a => String(a.id) === String(accId)) || acc.accessory;
+        let colors = latestAcc?.colors;
+        if (typeof colors === 'string') {
+          try { colors = JSON.parse(colors); } catch { colors = []; }
+        }
+        if (!Array.isArray(colors)) colors = [];
+
+        const colorObj = colors.find(c => c.color === acc.color);
+        const unitPrice = colorObj 
+          ? (parseFloat(colorObj.sale_price) || 0) 
+          : (parseFloat(acc.subtotal) / (parseFloat(acc.quantity) || 1) || 0);
+        const qty = parseFloat(acc.quantity) || 1;
+        const newSubtotal = qty * unitPrice;
+        updatedAccessoriesCount++;
+
+        return {
+          ...acc,
+          accessory: { ...latestAcc, colors },
+          subtotal: newSubtotal
+        };
+      });
+
+      const prodTotal = recalculatedProducts.reduce((sum, p) => sum + (parseFloat(p.subtotal) || 0), 0);
+      const accTotal = recalculatedAccessories.reduce((sum, a) => sum + (parseFloat(a.subtotal) || 0), 0);
+      const newTotal = prodTotal + accTotal;
+
+      setNewBudget(prev => ({
+        ...prev,
+        products: recalculatedProducts,
+        accessories: recalculatedAccessories,
+        totalValue: newTotal
+      }));
+
+      alert(`Orçamento recalculado com sucesso!\n${updatedProductsCount} produto(s) e ${updatedAccessoriesCount} acessório(s) recalculados com base na tabela de preços atual.`);
+    } catch (err) {
+      console.error('Erro ao recalcular orçamento:', err);
+      setError(`Erro ao recalcular orçamento: ${err.message}`);
+      alert(`Erro ao recalcular orçamento: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteBudgetFromEdit = async () => {
+    if (!isEditing || !budgetId) return;
+    if (!window.confirm('Tem certeza de que deseja excluir este orçamento permanentemente? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { error: deleteError } = await supabase
+        .from('orcamentos')
+        .delete()
+        .eq('id', budgetId);
+
+      if (deleteError) throw deleteError;
+
+      await localDB.delete('orcamentos', budgetId);
+
+      setBudgets(prev => prev.filter(b => String(b.id) !== String(budgetId)));
+      alert('Orçamento excluído com sucesso.');
+      navigate('/budgets');
+    } catch (err) {
+      console.error('Erro ao excluir orçamento:', err);
+      setError(`Erro ao excluir orçamento: ${err.message}`);
+      alert(`Erro ao excluir orçamento: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -1397,10 +1708,21 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
   const getCurrentWavePriceRange = (height) => {
     if (!currentProduct.product?.wave_pricing_data) return 'Preço não definido';
     
-    const heightNum = parseFloat(currentProduct.height);
+    const heightNum = parseFloat(height || currentProduct.height);
     if (!heightNum) return 'Altura inválida';
 
-    const wave_pricing = JSON.parse(currentProduct.product.wave_pricing_data || '[]');
+    let wave_pricing = [];
+    const rawWave = currentProduct.product.wave_pricing_data;
+    if (Array.isArray(rawWave)) {
+      wave_pricing = rawWave;
+    } else if (typeof rawWave === 'string') {
+      try {
+        wave_pricing = JSON.parse(rawWave);
+      } catch {
+        wave_pricing = [];
+      }
+    }
+
     for (const tier of wave_pricing) {
       if (heightNum >= tier.min_height && heightNum <= tier.max_height) {
         const basePrice = parseFloat(tier.price) || 0;
@@ -1498,7 +1820,33 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
 
   return (
     <div className="budgets-container">
-      <h2>{isEditing ? 'Editar Orçamento' : 'Novo Orçamento'}</h2>
+      <div className="budget-header-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+        <h2 style={{ margin: 0 }}>{isEditing ? 'Editar Orçamento' : 'Novo Orçamento'}</h2>
+        {isEditing && (
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="recalculate-button"
+              onClick={handleRecalculateBudget}
+              disabled={loading}
+              title="Recalcular preços com base no cadastro atual dos produtos e acessórios"
+            >
+              <i className="fas fa-calculator" style={{ marginRight: '8px' }}></i>
+              Recalcular Orçamento
+            </button>
+            <button
+              type="button"
+              className="delete-budget-btn"
+              onClick={handleDeleteBudgetFromEdit}
+              disabled={loading}
+              title="Excluir este orçamento permanentemente"
+            >
+              <i className="fas fa-trash-alt" style={{ marginRight: '8px' }}></i>
+              Excluir Orçamento
+            </button>
+          </div>
+        )}
+      </div>
       <form onSubmit={handleFinalizeBudget}>
         {/* Cliente Section */}
         <div className="form-section">
@@ -1543,62 +1891,85 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
           {/* Lista de produtos já adicionados */}
           {newBudget.products.length > 0 && (
             <div className="added-products">
-              <h4>Produtos Adicionados ({newBudget.products.length})</h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                <h4 style={{ margin: 0 }}>Produtos Adicionados ({newBudget.products.length})</h4>
+                <button
+                  type="button"
+                  className="recalculate-button"
+                  style={{ padding: '6px 14px', fontSize: '13px' }}
+                  onClick={handleRecalculateBudget}
+                  disabled={loading}
+                  title="Recalcular preços de todos os produtos com os valores atuais"
+                >
+                  <i className="fas fa-sync-alt" style={{ marginRight: '6px' }}></i>
+                  Recalcular Preços
+                </button>
+              </div>
               <div className="products-summary">
                 <p>Total de produtos: {newBudget.products.length}</p>
                 <p>Valor total dos produtos: R$ {productsTotal.toFixed(2)}</p>
               </div>
               <div className="products-list">
-                {newBudget.products.map((prod, index) => (
-                  <div key={index} className="added-product-item">
-                    <div className="product-info">
-                      <p><strong>{prod.product.nome}</strong></p>
-                      {prod.ambiente && (
-                        <p>Ambiente: {prod.ambiente}</p>
-                      )}
-                      <p>
-                        Dimensões digitadas: {prod.inputWidth.toFixed(2)}m x {prod.inputHeight.toFixed(2)}m
-                      </p>
-                      {prod.usedMinimum && (
-                        <>
+                {newBudget.products.map((prod, index) => {
+                  const prodName = prod.product?.nome || prod.product?.name || prod.produto?.nome || 'Produto';
+                  const inW = parseFloat(prod.inputWidth != null ? prod.inputWidth : prod.width) || 0;
+                  const inH = parseFloat(prod.inputHeight != null ? prod.inputHeight : prod.height) || 0;
+                  const w = parseFloat(prod.width) || 0;
+                  const h = parseFloat(prod.height) || 0;
+                  const bandoVal = parseFloat(prod.bandoValue) || 0;
+                  const railVal = parseFloat(prod.valor_trilho) || 0;
+                  const sub = parseFloat(prod.subtotal) || 0;
+                  const leaves = parseInt(prod.numFolhas) || 1;
+
+                  return (
+                    <div key={index} className="added-product-item">
+                      <div className="product-info">
+                        <p><strong>{prodName}</strong></p>
+                        {prod.ambiente && (
+                          <p>Ambiente: {prod.ambiente}</p>
+                        )}
+                        <p>
+                          Dimensões digitadas: {inW.toFixed(2)}m x {inH.toFixed(2)}m
+                        </p>
+                        {prod.usedMinimum && (
                           <p className="minimum-warning">
-                            DIMENSÕES MÍNIMAS PARA CÁLCULO: {prod.width.toFixed(2)}m x {prod.height.toFixed(2)}m
+                            DIMENSÕES MÍNIMAS PARA CÁLCULO: {w.toFixed(2)}m x {h.toFixed(2)}m
                           </p>
-                        </>
-                      )}
-                      {prod.painel && (
-                        <>
-                          <p>Painel com acréscimo de 10%: {(prod.inputWidth * prod.inputHeight * 1.1).toFixed(2)}m²</p>
-                          <p>Número de folhas: {prod.numFolhas}</p>
-                          {prod.numFolhas > 1 && (
-                            <p>Cada folha: {(prod.inputWidth * 1.1 / prod.numFolhas).toFixed(2)}m x {prod.inputHeight.toFixed(2)}m</p>
-                          )}
-                        </>
-                      )}
-                      {prod.bando && <p>Bandô: R$ {prod.bandoValue.toFixed(2)}</p>}
-                      {prod.installation && <p>Instalação: R$ {prod.installationValue}</p>}
-                      {prod.trilho_tipo && <p>Trilho: {prod.trilho_tipo}</p>}
-                      {prod.valor_trilho && <p>Valor do Trilho: R$ {prod.valor_trilho.toFixed(2)}</p>}
-                      <p className="product-subtotal">Subtotal: R$ {prod.subtotal.toFixed(2)}</p>
-                    </div>
-                    <div className="product-actions">
-                      <button
+                        )}
+                        {prod.painel && (
+                          <>
+                            <p>Painel com acréscimo de 10%: {(inW * inH * 1.1).toFixed(2)}m²</p>
+                            <p>Número de folhas: {leaves}</p>
+                            {leaves > 1 && (
+                              <p>Cada folha: {(inW * 1.1 / leaves).toFixed(2)}m x {inH.toFixed(2)}m</p>
+                            )}
+                          </>
+                        )}
+                        {prod.bando && <p>Bandô: R$ {bandoVal.toFixed(2)}</p>}
+                        {prod.installation && <p>Instalação: R$ {parseFloat(prod.installationValue) || 0}</p>}
+                        {prod.trilho_tipo && <p>Trilho: {prod.trilho_tipo}</p>}
+                        {railVal > 0 && <p>Valor do Trilho: R$ {railVal.toFixed(2)}</p>}
+                        <p className="product-subtotal">Subtotal: R$ {sub.toFixed(2)}</p>
+                      </div>
+                      <div className="product-actions">
+                        <button
                           type="button"
                           className="edit-button"
                           onClick={() => handleEditProduct(index)}
                         >
                           Editar
                         </button>
-                      <button
-                        type="button"
-                        className="remove-button"
-                        onClick={() => handleRemoveProduct(index)}
-                      >
-                        Remover
-                      </button>
+                        <button
+                          type="button"
+                          className="remove-button"
+                          onClick={() => handleRemoveProduct(index)}
+                        >
+                          Remover
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1675,33 +2046,48 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
                 <p>Total de acessórios: {newBudget.accessories.length}</p>
                 <p>Valor total dos acessórios: R$ {accessoriesTotal.toFixed(2)}</p>
               </div>
-              {newBudget.accessories.map((acc, index) => (
-                <div key={index} className="added-accessory-item">
-                  <div className="accessory-info">
-                    <p><strong>{acc.accessory.name}</strong></p>
-                    <p>Cor: {acc.color}</p>
-                    <p>Quantidade: {acc.quantity}</p>
-                    <p>Preço unitário: R$ {acc.accessory.colors.find(c => c.color === acc.color)?.sale_price.toFixed(2)}</p>
-                    <p className="accessory-subtotal">Subtotal: R$ {acc.subtotal.toFixed(2)}</p>
+              {newBudget.accessories.map((acc, index) => {
+                const accName = acc.accessory?.name || 'Acessório';
+                let colors = acc.accessory?.colors;
+                if (typeof colors === 'string') {
+                  try { colors = JSON.parse(colors); } catch { colors = []; }
+                }
+                if (!Array.isArray(colors)) colors = [];
+                const colorObj = colors.find(c => c.color === acc.color);
+                const unitPrice = colorObj 
+                  ? (parseFloat(colorObj.sale_price) || 0) 
+                  : (parseFloat(acc.subtotal) / (parseFloat(acc.quantity) || 1) || 0);
+                const qty = parseFloat(acc.quantity) || 1;
+                const sub = parseFloat(acc.subtotal) || 0;
+
+                return (
+                  <div key={index} className="added-accessory-item">
+                    <div className="accessory-info">
+                      <p><strong>{accName}</strong></p>
+                      <p>Cor: {acc.color}</p>
+                      <p>Quantidade: {qty}</p>
+                      <p>Preço unitário: R$ {unitPrice.toFixed(2)}</p>
+                      <p className="accessory-subtotal">Subtotal: R$ {sub.toFixed(2)}</p>
+                    </div>
+                    <div className="actions">
+                      <button
+                        type="button"
+                        className="edit-button"
+                        onClick={() => handleEditAccessory(index)}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="remove-button"
+                        onClick={() => handleRemoveAccessory(index)}
+                      >
+                        Remover
+                      </button>
+                    </div>
                   </div>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="edit-button"
-                      onClick={() => handleEditAccessory(index)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="remove-button"
-                      onClick={() => handleRemoveAccessory(index)}
-                    >
-                      Remover
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -1896,9 +2282,33 @@ function Budgets({ budgets, setBudgets, customers: initialCustomers, products: i
           </div>
         )}
 
-        <button type="submit" className="finalize-button" disabled={loading}>
-          {isEditing ? 'Salvar Alterações' : 'Finalizar Orçamento'}
-        </button>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginTop: '20px' }}>
+          <button type="submit" className="finalize-button" disabled={loading}>
+            {isEditing ? 'Salvar Alterações' : 'Finalizar Orçamento'}
+          </button>
+          {isEditing && (
+            <>
+              <button
+                type="button"
+                className="recalculate-button"
+                onClick={handleRecalculateBudget}
+                disabled={loading}
+              >
+                <i className="fas fa-calculator" style={{ marginRight: '8px' }}></i>
+                Recalcular Preços
+              </button>
+              <button
+                type="button"
+                className="delete-budget-btn"
+                onClick={handleDeleteBudgetFromEdit}
+                disabled={loading}
+              >
+                <i className="fas fa-trash-alt" style={{ marginRight: '8px' }}></i>
+                Excluir Orçamento
+              </button>
+            </>
+          )}
+        </div>
       </form>
     </div>
   );

@@ -156,15 +156,16 @@ tr:last-child td {
 }
 
 /* Set specific widths for columns */
-th:nth-child(1), td:nth-child(1) { width: 18%; } /* Cliente */
-th:nth-child(2), td:nth-child(2) { width: 15%; } /* Valor Total */
-th:nth-child(3), td:nth-child(3) { width: 12%; } /* Data de Criação */
-th:nth-child(4), td:nth-child(4) { width: 10%; } /* Válido até - Reduced from 15% to 10% */
-th:nth-child(5), td:nth-child(5) { width: 15%; } /* Status */
-th:nth-child(6), td:nth-child(6) { 
-  width: 35%; /* Increased from 30% to 35% to give more space for action buttons */
+th:nth-child(1), td:nth-child(1) { width: 16%; } /* Cliente */
+th:nth-child(2), td:nth-child(2) { width: 12%; } /* Vendedor */
+th:nth-child(3), td:nth-child(3) { width: 14%; } /* Valor Total */
+th:nth-child(4), td:nth-child(4) { width: 11%; } /* Data de Criação */
+th:nth-child(5), td:nth-child(5) { width: 11%; } /* Válido até */
+th:nth-child(6), td:nth-child(6) { width: 11%; } /* Status */
+th:nth-child(7), td:nth-child(7) { 
+  width: 25%; /* Space for action buttons */
   text-align: center;
-  padding: 8px 15px; /* Increased horizontal padding */
+  padding: 8px 10px;
 } /* Ações */
 
 /* Action buttons styling */
@@ -355,6 +356,17 @@ th:nth-child(6), td:nth-child(6) {
 .reactivate-button:hover {
   background-color: rgba(155, 89, 182, 0.08);
   box-shadow: 0 5px 10px rgba(155, 89, 182, 0.25);
+}
+
+.delete-button {
+  color: #e74c3c;
+  box-shadow: 0 3px 6px rgba(231, 76, 60, 0.2);
+}
+
+.delete-button:hover {
+  background-color: rgba(231, 76, 60, 0.15);
+  border-color: #e74c3c;
+  box-shadow: 0 5px 10px rgba(231, 76, 60, 0.3);
 }
 
 /** Overrides for action button sizes **/

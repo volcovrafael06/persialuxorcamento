@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase/client';
 import './BudgetList.css';
 
-function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudget, onReactivateBudget }) {
+function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudget, onReactivateBudget, onDeleteBudget }) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryParams = new URLSearchParams(location.search);
@@ -72,6 +72,51 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
       clientesSubscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (budgets && budgets.length >= 0) {
+      setLocalBudgets(prev => {
+        if (prev.length === 0) return prev;
+        const propIds = new Set(budgets.map(b => String(b.id)));
+        const filtered = prev.filter(b => propIds.has(String(b.id)));
+        return filtered.map(lb => {
+          const pb = budgets.find(b => String(b.id) === String(lb.id));
+          if (pb && pb.status !== lb.status) {
+            return { ...lb, status: pb.status };
+          }
+          return lb;
+        });
+      });
+    }
+  }, [budgets]);
+
+  const handleFinalize = async (id) => {
+    if (onFinalizeBudget) {
+      await onFinalizeBudget(id);
+      setLocalBudgets(prev => prev.map(b => String(b.id) === String(id) ? { ...b, status: 'finalizado' } : b));
+    }
+  };
+
+  const handleCancel = async (id) => {
+    if (onCancelBudget) {
+      await onCancelBudget(id);
+      setLocalBudgets(prev => prev.map(b => String(b.id) === String(id) ? { ...b, status: 'cancelado' } : b));
+    }
+  };
+
+  const handleReactivate = async (id) => {
+    if (onReactivateBudget) {
+      await onReactivateBudget(id);
+      setLocalBudgets(prev => prev.map(b => String(b.id) === String(id) ? { ...b, status: 'pendente' } : b));
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (onDeleteBudget) {
+      await onDeleteBudget(id);
+      setLocalBudgets(prev => prev.filter(b => String(b.id) !== String(id)));
+    }
+  };
 
   const calculateExpirationDate = (creationDate, validadeOrcamento) => {
     const creation = new Date(creationDate);
@@ -223,8 +268,6 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                       </span>
                     </td>
                     <td className="action-buttons">
-                      {/* Buttons based on status */}
-                      
                       {/* Visualizar button - All statuses */}
                       <Link 
                         to={`/budgets/${budget.id}/view`}
@@ -234,13 +277,11 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                         <i className="fas fa-eye"></i>
                       </Link>
 
-                      {/* For Pending Status: Visualizar, Finalizar, Editar, Cancelar */}
-                      {(isPending(budget.status)) && (
+                      {/* For Pending Status: Finalizar, Editar, Cancelar */}
+                      {isPending(budget.status) && (
                         <>
-                          {/* Debug display - remove after testing */}
-                          {console.log(`Budget ${budget.id} has status: "${budget.status}" - shows Pending Buttons`)}
                           <button
-                            onClick={() => onFinalizeBudget(budget.id)}
+                            onClick={() => handleFinalize(budget.id)}
                             className="action-button finalize-button"
                             title="Finalizar"
                           >
@@ -256,10 +297,7 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                           </Link>
                           
                           <button
-                            onClick={() => {
-                              console.log(`Canceling budget with ID: ${budget.id}`);
-                              onCancelBudget(budget.id);
-                            }}
+                            onClick={() => handleCancel(budget.id)}
                             className="action-button cancel-button"
                             title="Cancelar"
                           >
@@ -268,7 +306,7 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                         </>
                       )}
                       
-                      {/* For Finalized Status: Visualizar, Editar */}
+                      {/* For Finalized Status: Editar */}
                       {budget.status === 'finalizado' && (
                         <Link 
                           to={`/budgets/${budget.id}/edit`}
@@ -279,7 +317,7 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                         </Link>
                       )}
                       
-                      {/* For Canceled Status: Visualizar, Editar, Reativar */}
+                      {/* For Canceled Status: Editar, Reativar */}
                       {budget.status === 'cancelado' && (
                         <>
                           <Link 
@@ -291,7 +329,7 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                           </Link>
                           
                           <button
-                            onClick={() => onReactivateBudget(budget.id)}
+                            onClick={() => handleReactivate(budget.id)}
                             className="action-button reactivate-button"
                             title="Reativar"
                           >
@@ -299,6 +337,15 @@ function BudgetList({ budgets, validadeOrcamento, onFinalizeBudget, onCancelBudg
                           </button>
                         </>
                       )}
+
+                      {/* Excluir button - All statuses */}
+                      <button
+                        onClick={() => handleDelete(budget.id)}
+                        className="action-button delete-button"
+                        title="Excluir Orçamento"
+                      >
+                        <i className="fas fa-trash-alt"></i>
+                      </button>
                     </td>
                   </tr>
                 ))}

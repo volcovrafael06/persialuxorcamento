@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
 import './BudgetDetailsPage.css';
 import { supabase } from '../supabase/client';
+import { localDB } from '../services/localDatabase';
 import { buildBudgetItemGroupKey, buildCustomerPdfDescription } from '../utils/budgetPresentation';
 
 function BudgetDetailsPage({ companyLogo }) {
@@ -591,6 +592,31 @@ function BudgetDetailsPage({ companyLogo }) {
     );
   };
 
+  const handleDeleteBudget = async () => {
+    if (!window.confirm('Tem certeza de que deseja excluir este orçamento permanentemente? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { error: deleteError } = await supabase
+        .from('orcamentos')
+        .delete()
+        .eq('id', budgetId);
+
+      if (deleteError) throw deleteError;
+
+      await localDB.delete('orcamentos', budgetId);
+
+      alert('Orçamento excluído com sucesso.');
+      navigate('/budgets');
+    } catch (err) {
+      console.error('Erro ao excluir orçamento:', err);
+      alert(`Erro ao excluir orçamento: ${err.message || 'Erro desconhecido'}`);
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="budget-details-page">
       <div className="action-buttons-container">
@@ -600,11 +626,25 @@ function BudgetDetailsPage({ companyLogo }) {
         >
           &larr; Voltar para Lista de Orçamentos
         </button>
+        <Link 
+          to={`/budgets/${budgetId}/edit`}
+          className="print-button"
+          style={{ backgroundColor: '#f39c12', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          Editar Orçamento
+        </Link>
         <button 
           onClick={handlePrintNative}
           className="print-button"
         >
           Imprimir / Salvar PDF
+        </button>
+        <button 
+          onClick={handleDeleteBudget}
+          className="print-button"
+          style={{ backgroundColor: '#e74c3c' }}
+        >
+          Excluir Orçamento
         </button>
       </div>
 
@@ -803,8 +843,11 @@ function BudgetDetailsPage({ companyLogo }) {
         <button className="action-button print-button" onClick={handlePrintNative} style={{ marginRight: '10px' }}>
           Imprimir
         </button>
-        <button className="action-button print-button" onClick={handleDownloadPDF} style={{ backgroundColor: '#2196F3' }}>
+        <button className="action-button print-button" onClick={handleDownloadPDF} style={{ backgroundColor: '#2196F3', marginRight: '10px' }}>
           Baixar PDF
+        </button>
+        <button className="action-button" onClick={handleDeleteBudget} style={{ backgroundColor: '#e74c3c', color: 'white' }}>
+          Excluir Orçamento
         </button>
       </div>
     </div>

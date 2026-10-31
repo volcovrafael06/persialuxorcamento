@@ -1,21 +1,13 @@
 import React from 'react';
 import BudgetList from './BudgetList';
 import { supabase } from '../supabase/client';
+import { localDB } from '../services/localDatabase';
 
 function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
-  // Debug log to see the budgets data
-  console.log('BudgetStatusPage - All budgets:', budgets);
-  
-  // Helper function to check if a budget status is pending (igual à função no BudgetList)
+  // Helper function to check if a budget status is pending
   const isPending = (status) => {
     return status === 'pendente';
   };
-  
-  // Check if we have any budgets with pending status - agora usando a função isPending
-  const pendingBudgets = budgets.filter(budget => 
-    isPending(budget.status)
-  );
-  console.log('BudgetStatusPage - Pending budgets:', pendingBudgets);
 
   // Function to finalize a budget
   const handleFinalizeBudget = async (budgetId) => {
@@ -27,11 +19,13 @@ function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
 
       if (error) throw error;
 
+      await localDB.update('orcamentos', budgetId, { status: 'finalizado' });
+
       const updatedBudgets = budgets.map(budget =>
-        budget.id === budgetId ? { ...budget, status: 'finalizado' } : budget
+        String(budget.id) === String(budgetId) ? { ...budget, status: 'finalizado' } : budget
       );
       setBudgets(updatedBudgets);
-      alert(`Orçamento ${budgetId} finalizado.`);
+      alert(`Orçamento finalizado com sucesso.`);
     } catch (error) {
       console.error('Error finalizing budget:', error);
       alert('Erro ao finalizar orçamento.');
@@ -41,10 +35,7 @@ function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
   // Function to cancel a budget
   const handleCancelBudget = async (budgetId) => {
     try {
-      console.log(`Attempting to cancel budget ID: ${budgetId}`);
-      
-      // First, find the budget in our local state to check its status
-      const budgetToCancel = budgets.find(b => b.id === budgetId);
+      const budgetToCancel = budgets.find(b => String(b.id) === String(budgetId));
       
       if (!budgetToCancel) {
         console.error(`Budget with ID ${budgetId} not found in local state`);
@@ -54,34 +45,30 @@ function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
       
       // Only cancel if the budget is in pending status
       if (!isPending(budgetToCancel.status)) {
-        console.log(`Cannot cancel budget with status: ${budgetToCancel.status}`);
         alert('Apenas orçamentos pendentes podem ser cancelados');
         return;
       }
       
       // Update the budget status to cancelado
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('orcamentos')
         .update({ status: 'cancelado' })
         .eq('id', budgetId);
 
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
-      
-      console.log('Budget canceled successfully, updating UI');
+      if (error) throw error;
+
+      await localDB.update('orcamentos', budgetId, { status: 'cancelado' });
       
       // Update local state
       const updatedBudgets = budgets.map(budget =>
-        budget.id === budgetId ? { ...budget, status: 'cancelado' } : budget
+        String(budget.id) === String(budgetId) ? { ...budget, status: 'cancelado' } : budget
       );
       
       setBudgets(updatedBudgets);
-      alert(`Orçamento ${budgetId} foi cancelado com sucesso.`);
+      alert(`Orçamento cancelado com sucesso.`);
     } catch (error) {
       console.error('Error details:', error);
-      alert(`Erro ao cancelar orçamento: ${error.message || 'Unknown error'}`);
+      alert(`Erro ao cancelar orçamento: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -95,14 +82,41 @@ function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
 
       if (error) throw error;
 
+      await localDB.update('orcamentos', budgetId, { status: 'pendente' });
+
       const updatedBudgets = budgets.map(budget =>
-        budget.id === budgetId ? { ...budget, status: 'pendente' } : budget
+        String(budget.id) === String(budgetId) ? { ...budget, status: 'pendente' } : budget
       );
       setBudgets(updatedBudgets);
-      alert(`Orçamento ${budgetId} reativado.`);
+      alert(`Orçamento reativado com sucesso.`);
     } catch (error) {
       console.error('Error reactivating budget:', error);
       alert('Erro ao reativar orçamento.');
+    }
+  };
+
+  // Function to delete a budget
+  const handleDeleteBudget = async (budgetId) => {
+    if (!window.confirm('Tem certeza de que deseja excluir este orçamento? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('orcamentos')
+        .delete()
+        .eq('id', budgetId);
+
+      if (error) throw error;
+
+      await localDB.delete('orcamentos', budgetId);
+
+      const updatedBudgets = budgets.filter(budget => String(budget.id) !== String(budgetId));
+      setBudgets(updatedBudgets);
+      alert(`Orçamento excluído com sucesso.`);
+    } catch (error) {
+      console.error('Error deleting budget:', error);
+      alert(`Erro ao excluir orçamento: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -115,6 +129,7 @@ function BudgetStatusPage({ budgets, setBudgets, validadeOrcamento }) {
         onFinalizeBudget={handleFinalizeBudget}
         onCancelBudget={handleCancelBudget}
         onReactivateBudget={handleReactivateBudget}
+        onDeleteBudget={handleDeleteBudget}
       />
     </div>
   );
