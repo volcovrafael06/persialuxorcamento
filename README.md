@@ -17,7 +17,7 @@ Preencha `.env.local` somente com a URL e a chave publicável do Supabase. Nunca
 
 ## PDF do cliente
 
-O PDF baixado em **Visualizar orçamento** e a visualização do orçamento exibem a descrição completa dos produtos (incluindo dimensões como largura x altura e opções instaladas). Itens com as mesmas medidas, mesmo produto, opções e ambiente são agrupados somando a quantidade e calculando o valor unitário real (`valor unitário = valor total / quantidade`).
+O PDF baixado em **Visualizar orçamento** omite largura, altura, área e medidas de folhas para proteger dados comerciais do cliente. As medidas continuam salvas no orçamento e aparecem normalmente na edição e relatórios. Itens com as mesmas medidas, mesmo produto, opções e ambiente são agrupados somando a quantidade e calculando o valor unitário real (`valor unitário = valor total / quantidade`).
 
 Os testes dessa regra ficam em `tests/budgetPresentation.test.js`.
 

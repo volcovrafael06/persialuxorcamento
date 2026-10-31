@@ -23,6 +23,11 @@ export const getProductPresentationFields = (product = {}, item = {}) => ({
   code: firstValue(product.codigo, item.produto?.codigo, item.product?.codigo)
 });
 
+/**
+ * Builds display parts for a budget item.
+ * NOTE: For customer-facing proposals and PDFs, product measurements (width, height, area)
+ * are strictly omitted to protect commercial pricing and prevent quote shopping.
+ */
 export const buildBudgetItemDescriptionParts = (product = {}, item = {}) => {
   const fields = getProductPresentationFields(product, item);
   const baseParts = [];
@@ -46,29 +51,24 @@ export const buildBudgetItemDescriptionParts = (product = {}, item = {}) => {
   const heightVal = firstValue(item.input_height, item.inputHeight, item.altura, item.height);
   const parsedW = parseDimension(widthVal);
   const parsedH = parseDimension(heightVal);
-  const dimensions = (parsedW != null && parsedH != null)
-    ? `${parsedW.toFixed(2)}m x ${parsedH.toFixed(2)}m`
-    : '';
 
-  const line2Parts = [];
-  if (dimensions) line2Parts.push(dimensions);
-  if (item.bando) line2Parts.push('COM BANDO');
-  line2Parts.push(item.instalacao ? 'INSTALADO' : 'SEM INSTALAÇÃO');
-  const line2 = line2Parts.join(' - ');
-
-  let extraLine = null;
+  const optionParts = [];
   const numFolhas = Number(item.num_folhas);
-  if (item.painel && numFolhas > 1 && parsedW != null && parsedH != null) {
-    const sheetWidth = ((parsedW * 1.1) / numFolhas).toFixed(2);
-    const sheetHeight = parsedH.toFixed(2);
-    extraLine = `Cada folha: ${sheetWidth}m x ${sheetHeight}m (${numFolhas} folhas)`;
+  if (item.painel && numFolhas > 1) {
+    optionParts.push(`${numFolhas} FOLHAS`);
   }
+  if (item.bando) optionParts.push('COM BANDO');
+  optionParts.push(item.instalacao ? 'INSTALADO' : 'SEM INSTALAÇÃO');
+  const line2 = optionParts.join(' - ');
 
-  const pdfText = [line1, line2, extraLine].filter(Boolean).join('\n');
-  const fullText = [line1, line2, extraLine].filter(Boolean).join(' | ');
+  // Customer proposals/PDF strictly omit measurements (width, height, area, per-sheet dimensions)
+  const pdfText = [line1, line2].filter(Boolean).join('\n');
+  const fullText = [line1, line2].filter(Boolean).join(' | ');
 
   // Group key uniquely identifies identical configurations to safely group them:
-  // Same product identity, environment, measurements, panel, bando, installation, rail
+  // Same product identity, environment, measurements (width & height), panel, sheets, bando, installation, rail.
+  // Note: Measurements ARE in the group key so items with identical measurements group together,
+  // while items with different measurements remain in distinct rows.
   const key = JSON.stringify({
     productId: item.produto_id || '',
     name: fields.name,
@@ -88,11 +88,10 @@ export const buildBudgetItemDescriptionParts = (product = {}, item = {}) => {
   return {
     line1,
     line2,
-    extraLine,
+    extraLine: null,
     pdfText,
     fullText,
     key,
-    dimensions,
     parsedW,
     parsedH
   };
