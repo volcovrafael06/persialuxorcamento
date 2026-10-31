@@ -6,7 +6,13 @@ import html2canvas from 'html2canvas';
 import './BudgetDetailsPage.css';
 import { supabase } from '../supabase/client';
 import { localDB } from '../services/localDatabase';
-import { buildBudgetItemGroupKey, buildCustomerPdfDescription } from '../utils/budgetPresentation';
+import {
+  buildBudgetItemGroupKey,
+  buildCustomerPdfDescription,
+  buildBudgetItemDescriptionParts,
+  groupBudgetProducts,
+  groupBudgetAccessories
+} from '../utils/budgetPresentation';
 
 function BudgetDetailsPage({ companyLogo }) {
   const { budgetId } = useParams();
@@ -191,63 +197,15 @@ function BudgetDetailsPage({ companyLogo }) {
   };
 
   const formatProductDisplay = (product, item) => {
-    const inputWidth = item.input_width || item.inputWidth || item.largura;
-    const inputHeight = item.input_height || item.inputHeight || item.altura;
-    const dimensions = inputWidth && inputHeight ? `${parseFloat(inputWidth).toFixed(2)}m x ${parseFloat(inputHeight).toFixed(2)}m` : '';
-
-    const baseParts = [];
-    // Tenta encontrar o nome em vários lugares, incluindo item.product (que pode conter o objeto completo)
-    const nome = product.nome || product.name || item.produto?.nome || item.produto?.name || item.product?.nome || item.product?.name || item.nome || item.name || '';
-    
-    if (nome) baseParts.push(nome);
-    
-    if (item.painel && item.num_folhas) {
-      baseParts.push('PAINEL');
-    } else {
-      // Tenta encontrar o modelo em vários lugares
-      const modelo = product.modelo || item.produto?.modelo || item.product?.modelo || '';
-      if (modelo) baseParts.push(modelo);
-    }
-    
-    // Tenta encontrar o tecido e código
-    const tecido = product.tecido || item.produto?.tecido || item.product?.tecido || '';
-    if (tecido) baseParts.push(tecido);
-    
-    const codigo = product.codigo || item.produto?.codigo || item.product?.codigo || '';
-    if (codigo) baseParts.push(codigo);
-
-    // Se ainda assim não tiver nada, tenta usar uma descrição genérica se possível
-    if (baseParts.length === 0) {
-        if (item.produto_id) baseParts.push(`Produto #${item.produto_id}`);
-        else baseParts.push('Produto sem nome');
-    }
-
-    const line1 = baseParts.join(' - ');
-
-    const line2Parts = [];
-    if (dimensions) line2Parts.push(dimensions);
-    if (item.bando) line2Parts.push('COM BANDO');
-    line2Parts.push(item.instalacao ? 'INSTALADO' : 'SEM INSTALAÇÃO');
-
-    // For panels with multiple sheets, add an extra line
-    let extraLine = null;
-    if (item.painel && item.num_folhas > 1 && inputWidth && inputHeight) {
-      const sheetWidth = (parseFloat(inputWidth) * 1.1 / item.num_folhas).toFixed(2);
-      const sheetHeight = parseFloat(inputHeight).toFixed(2);
-      extraLine = `Cada folha: ${sheetWidth}m x ${sheetHeight}m (${item.num_folhas} folhas)`;
-    }
-
-    const key = [line1, line2Parts.join(' - '), extraLine].filter(Boolean).join(' | ');
-
+    const parts = buildBudgetItemDescriptionParts(product, item);
     const display = (
       <div>
-        <div>{line1}</div>
-        <div>{line2Parts.join(' - ')}</div>
-        {extraLine && <div>{extraLine}</div>}
+        <div>{parts.line1}</div>
+        <div>{parts.line2}</div>
+        {parts.extraLine && <div>{parts.extraLine}</div>}
       </div>
     );
-
-    return { key, display };
+    return { key: parts.fullText, display, parts };
   };
 
   // This function gets the name of an accessory by its ID
@@ -275,27 +233,11 @@ function BudgetDetailsPage({ companyLogo }) {
 
   const buildPdfRows = () => {
     const rows = [];
-    const groupedProducts = {};
     const items = safeParseArray(budget.produtos_json);
-    items.forEach(item => {
-      const productDetails = getProductDetails(item.produto_id);
-      const description = buildCustomerPdfDescription(productDetails, item);
-      const key = buildBudgetItemGroupKey(productDetails, item);
-      if (!groupedProducts[key]) {
-        groupedProducts[key] = {
-          description,
-          environment: item.ambiente || '-',
-          quantity: 1,
-          unitPrice: Number(item.valor_total || item.subtotal || 0),
-          totalPrice: Number(item.valor_total || item.subtotal || 0)
-        };
-      } else {
-        groupedProducts[key].quantity += 1;
-        groupedProducts[key].totalPrice += Number(item.valor_total || item.subtotal || 0);
-      }
-    });
+    const acc = safeParseArray(budget.acessorios_json);
 
-    Object.values(groupedProducts).forEach(group => {
+    const groupedProducts = groupBudgetProducts(items, getProductDetails);
+    groupedProducts.forEach(group => {
       rows.push([
         group.description,
         group.environment,
@@ -305,37 +247,17 @@ function BudgetDetailsPage({ companyLogo }) {
       ]);
     });
 
-    const acc = safeParseArray(budget.acessorios_json);
-    if (acc && acc.length > 0) {
-      const groupedAccessories = {};
-      acc.forEach(item => {
-        const accessoryName = getAccessoryName(item.accessory_id);
-        const key = `${item.accessory_id}_${item.color}`;
-        const unit = item.quantity && item.quantity > 0
-          ? (Number(item.valor_total || item.subtotal || 0) / item.quantity)
-          : Number(item.valor_total || item.subtotal || 0);
-        if (!groupedAccessories[key]) {
-          groupedAccessories[key] = {
-            description: accessoryName,
-            quantity: item.quantity || 1,
-            unitPrice: unit,
-            totalPrice: Number(item.valor_total || item.subtotal || 0)
-          };
-        } else {
-          groupedAccessories[key].quantity += (item.quantity || 1);
-          groupedAccessories[key].totalPrice += Number(item.valor_total || item.subtotal || 0);
-        }
-      });
-      Object.values(groupedAccessories).forEach(group => {
-        rows.push([
-          group.description,
-          '-',
-          String(group.quantity),
-          formatCurrency(group.unitPrice),
-          formatCurrency(group.totalPrice)
-        ]);
-      });
-    }
+    const groupedAccessories = groupBudgetAccessories(acc, getAccessoryName);
+    groupedAccessories.forEach(group => {
+      rows.push([
+        group.description,
+        group.environment,
+        String(group.quantity),
+        formatCurrency(group.unitPrice),
+        formatCurrency(group.totalPrice)
+      ]);
+    });
+
     return rows;
   };
 
@@ -481,20 +403,20 @@ function BudgetDetailsPage({ companyLogo }) {
             const installments = parseInt(pc.installments) || 1;
             const totalWithInterest = per * installments;
             footerRows.push([
-              { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO - ${installments}x):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-              { content: `${installments}x de ${formatCurrency(per)}`, styles: { halign: 'right', fontStyle: 'italic' } }
+              { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO EM ${installments}X):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } },
+              { content: `${installments}X DE ${formatCurrency(per)}`, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } }
             ]);
             if (parseFloat(pc.taxRate) > 0) {
               footerRows.push([
-                { content: `TOTAL COM JUROS (${pc.taxRate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-                { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic' } }
+                { content: `TOTAL COM JUROS (${pc.taxRate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } },
+                { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } }
               ]);
             }
           } else if (pc.method === 'pix') {
             const discountedValue = calculateDiscountValueFromCondition(budget, pc);
             footerRows.push([
-              { content: `CONDIÇÃO DE PAGAMENTO (PIX - ${pc.discountRate || 0}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-              { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic' } }
+              { content: `CONDIÇÃO DE PAGAMENTO (PIX COM ${pc.discountRate || 0}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } },
+              { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } }
             ]);
           }
         });
@@ -503,20 +425,20 @@ function BudgetDetailsPage({ companyLogo }) {
           const installmentValue = calculateInstallmentValue(budget);
           const totalWithInterest = installmentValue * (parseInt(budget.payment_installments) || 1);
           footerRows.push([
-            { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO - ${budget.payment_installments}x):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-            { content: `${budget.payment_installments}x de ${formatCurrency(installmentValue)}`, styles: { halign: 'right', fontStyle: 'italic' } }
+            { content: `CONDIÇÃO DE PAGAMENTO (CARTÃO EM ${budget.payment_installments}X):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } },
+            { content: `${budget.payment_installments}X DE ${formatCurrency(installmentValue)}`, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } }
           ]);
           if (parseFloat(budget.payment_tax_rate) > 0) {
             footerRows.push([
-              { content: `TOTAL COM JUROS (${budget.payment_tax_rate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-              { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic' } }
+              { content: `TOTAL COM JUROS (${budget.payment_tax_rate}%):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } },
+              { content: formatCurrency(totalWithInterest), styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } }
             ]);
           }
         } else if (budget.payment_method === 'pix' && parseFloat(budget.payment_discount_rate) > 0) {
           const discountedValue = calculateDiscountValue(budget);
           footerRows.push([
-            { content: `CONDIÇÃO DE PAGAMENTO (PIX - ${budget.payment_discount_rate}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic' } },
-            { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic' } }
+            { content: `CONDIÇÃO DE PAGAMENTO (PIX COM ${budget.payment_discount_rate}% DE DESCONTO):`, colSpan: 4, styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } },
+            { content: formatCurrency(discountedValue), styles: { halign: 'right', fontStyle: 'italic', textColor: 0 } }
           ]);
         }
       }
@@ -529,7 +451,8 @@ function BudgetDetailsPage({ companyLogo }) {
         body: tableRows,
         theme: 'grid',
         headStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
-        styles: { fontSize: 9, cellPadding: 2 },
+        footStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 2, textColor: 0 },
         columnStyles: {
           0: { cellWidth: 80 }, // Descrição
           1: { cellWidth: 35 }, // Ambiente
@@ -697,72 +620,30 @@ function BudgetDetailsPage({ companyLogo }) {
               </tr>
             </thead>
             <tbody>
-              {(() => {
-                // Group identical products
-                const groupedProducts = {};
-                
-                budgetProducts.forEach(item => {
-                  const productDetails = getProductDetails(item.produto_id);
-                  const desc = formatProductDisplay(productDetails, item);
-                  const key = `${desc.key}|${item.ambiente || ''}`; // Group by description and environment
-
-                  if (!groupedProducts[key]) {
-                    groupedProducts[key] = {
-                      display: desc.display,
-                      quantity: 1,
-                      unitPrice: Number(item.valor_total || item.subtotal || 0),
-                      totalPrice: Number(item.valor_total || item.subtotal || 0),
-                      details: item
-                    };
-                  } else {
-                    groupedProducts[key].quantity += 1;
-                    groupedProducts[key].totalPrice += Number(item.valor_total || item.subtotal || 0);
-                  }
-                });
-                
-                // Convert back to array for rendering
-                return Object.values(groupedProducts).map((group, index) => (
-                  <tr key={index}>
-                    <td className="description">{group.display}</td>
-                    <td className="environment">{group.details.ambiente || '-'}</td>
-                    <td className="quantity">{group.quantity}</td>
-                    <td className="unit-price">{formatCurrency(group.unitPrice)}</td>
-                    <td className="total">{formatCurrency(group.totalPrice)}</td>
-                  </tr>
-                ));
-              })()}
+              {groupBudgetProducts(budgetProducts, getProductDetails).map((group, index) => (
+                <tr key={`prod-${index}`}>
+                  <td className="description">
+                    <div>{group.parts.line1}</div>
+                    <div>{group.parts.line2}</div>
+                    {group.parts.extraLine && <div>{group.parts.extraLine}</div>}
+                  </td>
+                  <td className="environment">{group.environment}</td>
+                  <td className="quantity">{group.quantity}</td>
+                  <td className="unit-price">{formatCurrency(group.unitPrice)}</td>
+                  <td className="total">{formatCurrency(group.totalPrice)}</td>
+                </tr>
+              ))}
               
-              {/* Group identical accessories too */}
-              {budgetAccessories && budgetAccessories.length > 0 && (() => {
-                const groupedAccessories = {};
-                
-                budgetAccessories.forEach(item => {
-                  const accessoryName = getAccessoryName(item.accessory_id);
-                  const key = `${item.accessory_id}_${item.color}`;
-                  
-                  if (!groupedAccessories[key]) {
-                    groupedAccessories[key] = {
-                      description: accessoryName,
-                      quantity: item.quantity || 1,
-                      unitPrice: item.quantity && item.quantity > 0 ? (Number(item.valor_total || item.subtotal || 0) / item.quantity) : Number(item.valor_total || item.subtotal || 0),
-                      totalPrice: Number(item.valor_total || item.subtotal || 0)
-                    };
-                  } else {
-                    groupedAccessories[key].quantity += (item.quantity || 1);
-                    groupedAccessories[key].totalPrice += Number(item.valor_total || item.subtotal || 0);
-                  }
-                });
-                
-                return Object.values(groupedAccessories).map((group, index) => (
-                  <tr key={`acc-${index}`}>
-                    <td className="description">{group.description}</td>
-                    <td className="environment">-</td>
-                    <td className="quantity">{group.quantity}</td>
-                    <td className="unit-price">{formatCurrency(group.unitPrice)}</td>
-                    <td className="total">{formatCurrency(group.totalPrice)}</td>
-                  </tr>
-                ));
-              })()}
+              {/* Group identical accessories */}
+              {groupBudgetAccessories(budgetAccessories, getAccessoryName).map((group, index) => (
+                <tr key={`acc-${index}`}>
+                  <td className="description">{group.description}</td>
+                  <td className="environment">{group.environment}</td>
+                  <td className="quantity">{group.quantity}</td>
+                  <td className="unit-price">{formatCurrency(group.unitPrice)}</td>
+                  <td className="total">{formatCurrency(group.totalPrice)}</td>
+                </tr>
+              ))}
             </tbody>
             <tfoot>
               <tr>
